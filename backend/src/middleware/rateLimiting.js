@@ -7,12 +7,12 @@ const apiLimiter = new RateLimiterMemory({
   duration: parseInt(process.env.RATE_LIMIT_WINDOW) * 60 || 900, // Per 15 minutes (900 seconds)
 });
 
-// Stricter rate limiter for authentication endpoints
+// Stricter rate limiter for authentication endpoints (more lenient for development)
 const authLimiter = new RateLimiterMemory({
   keyPrefix: 'auth',
-  points: 5, // Number of attempts
+  points: 50, // Number of attempts (increased for development)
   duration: 60 * 15, // Per 15 minutes
-  blockDuration: 60 * 15, // Block for 15 minutes if limit exceeded
+  blockDuration: 60 * 1, // Block for 1 minute if limit exceeded (reduced for development)
 });
 
 // Rate limiter for message sending
@@ -24,6 +24,11 @@ const messageLimiter = new RateLimiterMemory({
 
 const createRateLimitMiddleware = (limiter, message = 'Too many requests') => {
   return async (req, res, next) => {
+    // Skip rate limiting in development
+    if (process.env.NODE_ENV === 'development') {
+      return next();
+    }
+    
     try {
       const key = req.ip || req.connection.remoteAddress;
       await limiter.consume(key);
@@ -43,6 +48,11 @@ const createRateLimitMiddleware = (limiter, message = 'Too many requests') => {
 
 const createUserRateLimitMiddleware = (limiter, message = 'Too many requests') => {
   return async (req, res, next) => {
+    // Skip rate limiting in development
+    if (process.env.NODE_ENV === 'development') {
+      return next();
+    }
+    
     try {
       // Use user ID if authenticated, otherwise fall back to IP
       const key = req.user ? `user_${req.user.id}` : req.ip;

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { User } from '@shared/types';
-import EncryptionService, { type KeyPair } from '@/utils/encryption';
+import DebugEncryptionService, { type KeyPair } from '@/utils/debugEncryption';
 import apiService from '@/services/api';
 import socketService from '@/services/socket';
 
@@ -43,12 +43,38 @@ export const useAuthStore = create<AuthState>()(
 
           const authResponse = await apiService.login({ username, password });
           
+          // Check if we have a stored keyPair for this user
+          const stored = get();
+          let keyPair = stored.keyPair;
+          
+          // Important: For existing users who don't have a keyPair stored locally,
+          // we need to generate a new one. In a real app, you'd want key recovery mechanisms.
+          if (!keyPair) {
+            console.warn('⚠️ No stored keyPair found for user. Generating new encryption keys.');
+            console.warn('⚠️ Note: This will prevent decrypting previously sent messages.');
+            keyPair = await DebugEncryptionService.generateKeyPair();
+            
+            // IMPORTANT: Update the server with the new public key
+            try {
+              console.log('🔄 Updating server with new public key...');
+              await apiService.updateUserPublicKey(keyPair.publicKey);
+              console.log('✅ Server public key updated successfully');
+              
+              // Update the user object with new public key
+              authResponse.user.publicKey = keyPair.publicKey;
+            } catch (error) {
+              console.error('❌ Failed to update server public key:', error);
+              // Continue anyway - user can still send new messages
+            }
+          }
+          
           // Connect to socket with token
           await socketService.connect(authResponse.token);
 
           set({
             user: authResponse.user,
             token: authResponse.token,
+            keyPair,
             isAuthenticated: true,
             isLoading: false,
             error: null
@@ -72,7 +98,7 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true, error: null });
 
           // Generate key pair for encryption
-          const keyPair = await EncryptionService.generateKeyPair();
+          const keyPair = await DebugEncryptionService.generateKeyPair();
 
           const authResponse = await apiService.register({
             ...userData,
@@ -184,7 +210,7 @@ export const useAuthStore = create<AuthState>()(
 
       generateNewKeyPair: async () => {
         try {
-          const keyPair = await EncryptionService.generateKeyPair();
+          const keyPair = await DebugEncryptionService.generateKeyPair();
           set({ keyPair });
         } catch (error) {
           console.error('Failed to generate key pair:', error);

@@ -127,6 +127,17 @@ class ApiService {
     throw new Error(response.data.message || 'Search failed');
   }
 
+  async updateUserPublicKey(publicKey: string): Promise<void> {
+    const response = await this.api.put<ApiResponse>(
+      '/api/auth/public-key',
+      { publicKey }
+    );
+    
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Failed to update public key');
+    }
+  }
+
   async getUserByUsername(username: string): Promise<User> {
     const response = await this.api.get<ApiResponse<{ user: User }>>(
       `/api/auth/username/${encodeURIComponent(username)}`

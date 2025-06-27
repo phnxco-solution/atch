@@ -24,6 +24,7 @@ export interface Conversation {
   otherUser: User;
   lastMessage?: {
     content: string;
+    iv: string;
     senderId: number;
     timestamp: string;
   };

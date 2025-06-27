@@ -47,6 +47,7 @@ class ConversationService {
           ELSE u1.public_key
         END as other_public_key,
         m.encrypted_content as last_message_content,
+        m.iv as last_message_iv,
         m.created_at as last_message_time,
         m.sender_id as last_message_sender_id
       FROM conversations c
@@ -56,6 +57,7 @@ class ConversationService {
         SELECT 
           conversation_id,
           encrypted_content,
+          iv,
           created_at,
           sender_id,
           ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at DESC) as rn
@@ -75,6 +77,7 @@ class ConversationService {
       },
       lastMessage: conv.last_message_content ? {
         content: conv.last_message_content,
+        iv: conv.last_message_iv,
         senderId: conv.last_message_sender_id,
         timestamp: conv.last_message_time
       } : null,

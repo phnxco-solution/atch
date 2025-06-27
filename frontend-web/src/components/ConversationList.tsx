@@ -22,6 +22,11 @@ const ConversationList: React.FC = () => {
       return 'No messages yet';
     }
 
+    // If we don't have an IV, we can't decrypt - show generic message
+    if (!conversation.lastMessage.iv) {
+      return '🔒 Encrypted message';
+    }
+
     // Try to decrypt the last message for preview
     try {
       const decrypted = decryptMessage(
@@ -31,7 +36,7 @@ const ConversationList: React.FC = () => {
           senderId: conversation.lastMessage.senderId,
           senderUsername: '',
           encryptedContent: conversation.lastMessage.content,
-          iv: '', // We would need to store IV with last message for this to work
+          iv: conversation.lastMessage.iv,
           messageType: 'text',
           createdAt: conversation.lastMessage.timestamp
         },
@@ -42,7 +47,7 @@ const ConversationList: React.FC = () => {
         return decrypted.length > 50 ? `${decrypted.substring(0, 50)}...` : decrypted;
       }
     } catch (error) {
-      // If decryption fails, show encrypted indicator
+      console.warn('Failed to decrypt last message preview:', error);
     }
     
     return '🔒 Encrypted message';

@@ -11,7 +11,7 @@ interface MessageListProps {
 
 const MessageList: React.FC<MessageListProps> = ({ messages, conversation }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { user } = useAuth();
+  const { user, keyPair } = useAuth();
   const { decryptMessage } = useChatStore();
 
   useEffect(() => {
@@ -23,22 +23,73 @@ const MessageList: React.FC<MessageListProps> = ({ messages, conversation }) => 
 
   const getDecryptedContent = (message: Message): string => {
     try {
-      // Determine the sender's public key for decryption
-      let senderPublicKey: string;
-      
-      if (message.senderId === user?.id) {
-        // If it's our message, we use our own public key
-        senderPublicKey = user.publicKey;
-      } else {
-        // If it's the other person's message, use their public key
-        senderPublicKey = conversation.otherUser.publicKey;
+      if (!keyPair) {
+        console.error('❌ No keyPair available');
+        return 'No encryption keys available';
       }
 
-      const decrypted = decryptMessage(message, senderPublicKey);
-      return decrypted || 'Failed to decrypt message';
+      if (!user) {
+        console.error('❌ No user available');
+        return 'No user available';
+      }
+
+      const isOwnMessage = message.senderId === user.id;
+
+      console.group(`🔍 Decrypting message ID: ${message.id}`);
+      console.log('👤 User info:', {
+        currentUserId: user.id,
+        currentUsername: user.username,
+        senderId: message.senderId,
+        senderUsername: message.senderUsername,
+        isOwnMessage
+      });
+
+      // In a two-person conversation, always use the other person's public key
+      const otherUserPublicKey = conversation.otherUser.publicKey;
+
+      console.log('🔑 Key details:', {
+        myPrivateKey: keyPair.privateKey ? `${keyPair.privateKey.substring(0, 8)}...` : 'undefined',
+        myPublicKey: user.publicKey ? `${user.publicKey.substring(0, 8)}...` : 'undefined',
+        otherUserPublicKey: otherUserPublicKey ? `${otherUserPublicKey.substring(0, 8)}...` : 'undefined',
+        otherUsername: conversation.otherUser.username,
+        strategy: 'receiver-uses-other-user-public-key'
+      });
+
+      console.log('📦 Message details:', {
+        hasEncryptedContent: !!message.encryptedContent,
+        hasIV: !!message.iv,
+        encryptedContentLength: message.encryptedContent?.length || 0,
+        ivLength: message.iv?.length || 0
+      });
+
+      if (!otherUserPublicKey) {
+        console.error('❌ Other user public key is undefined');
+        console.groupEnd();
+        return '🔒 Missing other user key';
+      }
+
+      if (!keyPair.privateKey) {
+        console.error('❌ Private key is undefined');
+        console.groupEnd();
+        return '🔒 Missing private key';
+      }
+
+      console.log('🔓 Attempting decryption...');
+      const decrypted = decryptMessage(message, otherUserPublicKey);
+      
+      if (decrypted) {
+        console.log('✅ Decryption successful!');
+        console.groupEnd();
+        return decrypted;
+      } else {
+        console.error('❌ Decryption returned null/empty');
+        console.groupEnd();
+        return '🔒 Failed to decrypt';
+      }
     } catch (error) {
-      console.error('Failed to decrypt message:', error);
-      return 'Failed to decrypt message';
+      console.error('❌ Failed to decrypt message:', error);
+      console.groupEnd();
+      return '🔒 Decryption failed';
     }
   };
 

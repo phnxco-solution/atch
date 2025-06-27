@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { Conversation, Message, User } from '@shared/types';
 import apiService from '@/services/api';
 import socketService from '@/services/socket';
-import EncryptionService from '@/utils/encryption';
+import DebugEncryptionService from '@/utils/debugEncryption';
 import { useAuthStore } from './authStore';
 
 interface ChatState {
@@ -135,7 +135,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const recipientPublicKey = currentConversation.otherUser.publicKey;
       
       // Encrypt the message
-      const encryptedMessage = EncryptionService.encryptMessage(
+      const encryptedMessage = DebugEncryptionService.encryptMessage(
         content,
         keyPair.privateKey,
         recipientPublicKey
@@ -213,6 +213,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...conv,
           lastMessage: {
             content: message.encryptedContent,
+            iv: message.iv,
             senderId: message.senderId,
             timestamp: message.createdAt
           },
@@ -286,23 +287,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const authStore = useAuthStore.getState();
       const { keyPair } = authStore;
       
+      console.log('🏪 Store decryptMessage called:', {
+        messageId: message.id,
+        hasKeyPair: !!keyPair,
+        hasSenderPublicKey: !!senderPublicKey,
+        keyPairPrivateKey: keyPair?.privateKey ? `${keyPair.privateKey.substring(0, 8)}...` : 'undefined',
+        senderPublicKey: senderPublicKey ? `${senderPublicKey.substring(0, 8)}...` : 'undefined'
+      });
+      
       if (!keyPair) {
-        console.error('No encryption keys available');
+        console.error('❌ No encryption keys available in store');
         return null;
       }
       
-      const decryptedContent = EncryptionService.decryptMessage(
+      if (!keyPair.privateKey) {
+        console.error('❌ No private key available in keyPair');
+        return null;
+      }
+      
+      if (!senderPublicKey) {
+        console.error('❌ No sender public key provided');
+        return null;
+      }
+      
+      const decryptedContent = DebugEncryptionService.debugDecryptMessage(
         {
           encryptedContent: message.encryptedContent,
           iv: message.iv
         },
         keyPair.privateKey,
-        senderPublicKey
+        senderPublicKey,
+        message.id
       );
       
       return decryptedContent;
     } catch (error) {
-      console.error('Failed to decrypt message:', error);
+      console.error('❌ Failed to decrypt message in store:', error);
       return null;
     }
   },

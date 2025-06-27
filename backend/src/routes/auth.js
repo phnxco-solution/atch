@@ -220,4 +220,36 @@ router.get('/verify-token',
   }
 );
 
+// Update user's public key
+router.put('/public-key',
+  authenticateToken,
+  apiRateLimit,
+  async (req, res) => {
+    try {
+      const { publicKey } = req.body;
+
+      if (!publicKey || typeof publicKey !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid public key is required'
+        });
+      }
+
+      // Update user's public key in database
+      await UserService.updateUser(req.user.id, { public_key: publicKey });
+
+      res.json({
+        success: true,
+        message: 'Public key updated successfully'
+      });
+    } catch (error) {
+      console.error('Update public key error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update public key'
+      });
+    }
+  }
+);
+
 module.exports = router;

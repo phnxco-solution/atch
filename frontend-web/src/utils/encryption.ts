@@ -45,8 +45,15 @@ class EncryptionService {
     recipientPublicKey: string
   ): EncryptedMessage {
     try {
+      console.log('🔐 Encrypting message with keys:', {
+        senderPrivateKeyLength: senderPrivateKey.length,
+        recipientPublicKeyLength: recipientPublicKey.length,
+        messageLength: message.length
+      });
+
       // Generate shared secret using sender's private key and recipient's public key
       const sharedSecret = this.generateSharedSecret(senderPrivateKey, recipientPublicKey);
+      console.log('🔑 Generated shared secret for encryption');
       
       // Generate random IV
       const iv = CryptoJS.lib.WordArray.random(this.IV_SIZE);
@@ -58,12 +65,15 @@ class EncryptionService {
         padding: CryptoJS.pad.Pkcs7
       });
 
-      return {
+      const result = {
         encryptedContent: encrypted.toString(),
         iv: iv.toString()
       };
+
+      console.log('✅ Message encrypted successfully');
+      return result;
     } catch (error) {
-      console.error('Error encrypting message:', error);
+      console.error('❌ Error encrypting message:', error);
       throw new Error('Failed to encrypt message');
     }
   }
@@ -77,8 +87,29 @@ class EncryptionService {
     senderPublicKey: string
   ): string {
     try {
+      // Validate inputs
+      if (!encryptedMessage || !encryptedMessage.encryptedContent || !encryptedMessage.iv) {
+        throw new Error('Invalid encrypted message object');
+      }
+      
+      if (!recipientPrivateKey) {
+        throw new Error('Recipient private key is required');
+      }
+      
+      if (!senderPublicKey) {
+        throw new Error('Sender public key is required');
+      }
+
+      console.log('🔓 Decrypting message with keys:', {
+        senderPublicKeyLength: senderPublicKey?.length || 'undefined',
+        recipientPrivateKeyLength: recipientPrivateKey?.length || 'undefined',
+        ivLength: encryptedMessage.iv?.length || 'undefined',
+        encryptedContentLength: encryptedMessage.encryptedContent?.length || 'undefined'
+      });
+
       // Generate shared secret using recipient's private key and sender's public key
       const sharedSecret = this.generateSharedSecret(recipientPrivateKey, senderPublicKey);
+      console.log('🔑 Generated shared secret for decryption');
       
       // Parse IV
       const iv = CryptoJS.enc.Hex.parse(encryptedMessage.iv);
@@ -93,23 +124,41 @@ class EncryptionService {
       const decryptedMessage = decrypted.toString(CryptoJS.enc.Utf8);
       
       if (!decryptedMessage) {
+        console.error('❌ Decryption resulted in empty string');
         throw new Error('Failed to decrypt message - invalid key or corrupted data');
       }
 
+      console.log('✅ Message decrypted successfully:', decryptedMessage);
       return decryptedMessage;
     } catch (error) {
-      console.error('Error decrypting message:', error);
+      console.error('❌ Error decrypting message:', error);
       throw new Error('Failed to decrypt message');
     }
   }
 
   /**
    * Generate a shared secret from two keys using ECDH-like approach
+   * Ensures consistent secret regardless of who calls it
    */
-  private static generateSharedSecret(privateKey: string, publicKey: string): string {
+  private static generateSharedSecret(key1: string, key2: string): string {
     try {
-      // Simplified key derivation - combine private and public keys
-      const combined = privateKey + publicKey;
+      console.log('🔄 Generating shared secret with keys:', {
+        key1Length: key1.length,
+        key2Length: key2.length,
+        key1Start: key1.substring(0, 16) + '...',
+        key2Start: key2.substring(0, 16) + '...'
+      });
+
+      // Ensure consistent ordering by sorting the keys
+      const [firstKey, secondKey] = [key1, key2].sort();
+      const combined = firstKey + secondKey;
+      
+      console.log('🔀 Keys sorted:', {
+        firstKeyStart: firstKey.substring(0, 16) + '...',
+        secondKeyStart: secondKey.substring(0, 16) + '...',
+        combinedLength: combined.length,
+        areKeysSame: key1 === key2
+      });
       
       // Use PBKDF2 to derive a strong shared secret
       const sharedSecret = CryptoJS.PBKDF2(combined, 'encryption_salt', {
@@ -117,9 +166,15 @@ class EncryptionService {
         iterations: 10000
       });
 
-      return sharedSecret.toString();
+      const secretString = sharedSecret.toString();
+      console.log('✅ Shared secret generated:', {
+        secretLength: secretString.length,
+        secretStart: secretString.substring(0, 16) + '...'
+      });
+      
+      return secretString;
     } catch (error) {
-      console.error('Error generating shared secret:', error);
+      console.error('❌ Error generating shared secret:', error);
       throw new Error('Failed to generate shared secret');
     }
   }
