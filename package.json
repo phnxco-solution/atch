@@ -1,0 +1,36 @@
+{
+  "name": "encrypted-chat",
+  "version": "1.0.0",
+  "description": "End-to-end encrypted messaging application",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && cd backend && npm install && cd ../frontend-web && npm install",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend-web && npm run dev",
+    "build": "cd frontend-web && npm run build",
+    "start": "cd backend && npm start",
+    "setup": "chmod +x setup.sh && ./setup.sh",
+    "db:migrate": "cd backend && npm run db:migrate",
+    "lint": "cd frontend-web && npm run lint",
+    "type-check": "cd frontend-web && npm run type-check"
+  },
+  "keywords": [
+    "chat",
+    "messaging",
+    "encryption",
+    "end-to-end",
+    "real-time",
+    "socket.io",
+    "react",
+    "nodejs"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
