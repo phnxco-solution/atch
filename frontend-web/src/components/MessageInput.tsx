@@ -42,11 +42,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
     try {
       await sendMessage(messageToSend);
       onMessageSent?.();
+      
+      // Focus back on input after successful send
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
     } catch (error) {
       console.error('Failed to send message:', error);
       toast.error('Failed to send message');
       // Restore the message if sending failed
       setMessage(messageToSend);
+      
+      // Focus back on input even if failed
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
     }
   };
 
