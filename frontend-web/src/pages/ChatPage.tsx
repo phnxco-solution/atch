@@ -18,13 +18,17 @@ const ChatPage: React.FC = () => {
     conversations,
     isLoadingConversations, 
     loadConversations,
+    restoreSelectedConversation,
     error 
   } = useChatStore();
 
   useEffect(() => {
     // Load conversations on mount
-    loadConversations();
-  }, [loadConversations]);
+    loadConversations().then(() => {
+      // After conversations are loaded, try to restore the selected conversation
+      restoreSelectedConversation();
+    });
+  }, [loadConversations, restoreSelectedConversation]);
 
   if (!user) {
     return (

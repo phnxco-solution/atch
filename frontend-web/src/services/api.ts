@@ -331,7 +331,7 @@ class ApiService {
     const response = await this.api.post<ApiResponse<{ message: import('@shared/types').Message }>>(
       '/api/messages',
       {
-        conversationId,
+        conversationId: messageData.conversationId,
         content: messageData.content,
         messageType: messageData.messageType || 'text'
       }

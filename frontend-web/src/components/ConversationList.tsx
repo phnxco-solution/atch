@@ -13,10 +13,6 @@ const ConversationList: React.FC = () => {
     decryptMessage 
   } = useChatStore();
 
-  // Debug logging to understand the data structure
-  console.log('ConversationList - conversations:', conversations);
-  console.log('ConversationList - conversations count:', conversations?.length || 0);
-  
   const handleSelectConversation = (conversation: Conversation) => {
     selectConversation(conversation);
   };

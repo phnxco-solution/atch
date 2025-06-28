@@ -55,15 +55,15 @@ class MessageService {
         throw new Error('Access denied to this conversation');
       }
 
-      // For now, return empty array since the conversation was just created
-      // This avoids the database schema mismatch issue
-      console.log(`📋 Getting messages for conversation ${conversationId} - returning empty for now`);
-      
-      return [];
+      // Get the conversation UUID from the integer ID
+      const conversation = await db.query('SELECT conversation_id FROM conversations WHERE id = ?', [conversationId]);
+      if (conversation.length === 0) {
+        return [];
+      }
 
-      // TODO: Fix the schema mismatch and implement proper message retrieval
-      /*
-      // Get messages
+      const conversationUuid = conversation[0].conversation_id;
+
+      // Get messages using the UUID
       const messages = await db.query(`
         SELECT 
           m.id,
@@ -77,24 +77,21 @@ class MessageService {
           u.public_key as sender_public_key
         FROM messages m
         JOIN users u ON m.sender_id = u.id
-        JOIN conversations c ON m.conversation_id = c.conversation_id
-        WHERE c.id = ?
-        ORDER BY m.created_at DESC
+        WHERE m.conversation_id = ?
+        ORDER BY m.created_at ASC
         LIMIT ? OFFSET ?
-      `, [conversationId, limit, offset]);
+      `, [conversationUuid, limit, offset]);
 
       return messages.map(msg => ({
         id: msg.id,
-        conversationId: msg.conversation_id,
+        conversationId: conversationId, // Return the integer ID for frontend
         senderId: msg.sender_id,
         senderUsername: msg.sender_username,
-        senderPublicKey: msg.sender_public_key,
         encryptedContent: msg.encrypted_content,
         iv: msg.iv,
         messageType: msg.message_type,
         createdAt: msg.created_at
-      })).reverse(); // Reverse to show oldest first
-      */
+      }));
 
     } catch (error) {
       console.error('❌ Error getting conversation messages:', error);

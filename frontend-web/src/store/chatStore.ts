@@ -22,6 +22,7 @@ interface ChatState {
   // Actions
   loadConversations: () => Promise<void>;
   selectConversation: (conversation: Conversation) => Promise<void>;
+  restoreSelectedConversation: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   createConversation: (userId: number) => Promise<Conversation>;
   addMessage: (message: Message) => void;
@@ -53,9 +54,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations,
         isLoadingConversations: false
       });
-
-      console.log(`✅ Loaded ${conversations.length} conversations`);
-      
     } catch (error) {
       console.error('❌ Failed to load conversations:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load conversations';
@@ -63,6 +61,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isLoadingConversations: false,
         error: errorMessage
       });
+    }
+  },
+
+  restoreSelectedConversation: async () => {
+    try {
+      const savedConversationId = localStorage.getItem('selectedConversationId');
+      if (!savedConversationId) {
+        return;
+      }
+
+      const conversationId = parseInt(savedConversationId);
+      const { conversations } = get();
+      
+      // Find the conversation in our loaded conversations
+      const conversation = conversations.find(conv => conv.id === conversationId);
+      if (conversation) {
+        await get().selectConversation(conversation);
+        console.log(`🔄 Restored conversation: ${conversationId}`);
+      } else {
+        // Clear invalid saved conversation ID
+        localStorage.removeItem('selectedConversationId');
+      }
+    } catch (error) {
+      console.error('❌ Failed to restore conversation:', error);
+      localStorage.removeItem('selectedConversationId');
     }
   },
 
@@ -74,6 +97,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isLoadingMessages: true, 
         error: null 
       });
+      
+      // Save selected conversation to localStorage
+      localStorage.setItem('selectedConversationId', conversation.id.toString());
       
       console.log(`📋 Selecting conversation: ${conversation.id}`);
       
@@ -239,6 +265,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   reset: () => {
+    // Clear localStorage when resetting
+    localStorage.removeItem('selectedConversationId');
+    
     set({
       conversations: [],
       currentConversationId: null,

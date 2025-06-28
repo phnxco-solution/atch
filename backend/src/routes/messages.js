@@ -74,19 +74,43 @@ router.post('/',
         });
       }
 
-      // For now, just store the plain text message
-      // We'll add back encryption later
+      // Verify user has access to this conversation
+      const ConversationService = require('../services/conversationService');
+      const hasAccess = await ConversationService.verifyUserInConversation(parseInt(conversationId), req.user.id);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied to this conversation'
+        });
+      }
+
+      // Get conversation details to find the UUID
+      const conversation = await db.query('SELECT conversation_id FROM conversations WHERE id = ?', [conversationId]);
+      if (conversation.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Conversation not found'
+        });
+      }
+
+      const conversationUuid = conversation[0].conversation_id;
+
+      // Insert message with plain text
       const result = await db.query(
         'INSERT INTO messages (conversation_id, sender_id, encrypted_content, iv, message_type) VALUES (?, ?, ?, ?, ?)',
-        [conversationId, req.user.id, content.trim(), 'no_iv_yet', messageType]
+        [conversationUuid, req.user.id, content.trim(), 'no-encryption', messageType]
       );
+
+      // Get sender info
+      const sender = await db.query('SELECT username, public_key FROM users WHERE id = ?', [req.user.id]);
 
       const message = {
         id: result.insertId,
-        conversationId,
+        conversationId: parseInt(conversationId),
         senderId: req.user.id,
-        senderUsername: req.user.username,
-        content: content.trim(),
+        senderUsername: sender[0].username,
+        encryptedContent: content.trim(),
+        iv: 'no-encryption',
         messageType,
         createdAt: new Date().toISOString()
       };
@@ -97,7 +121,7 @@ router.post('/',
         data: { message }
       });
 
-      console.log(`✅ Simple message sent: ${result.insertId}`);
+      console.log(`✅ Message sent: ${result.insertId} in conversation ${conversationId}`);
 
     } catch (error) {
       console.error('Send message error:', error);

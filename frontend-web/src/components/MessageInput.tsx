@@ -40,7 +40,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     stopTyping();
 
     try {
-      await sendMessage(conversation.otherUser.id, messageToSend);
+      await sendMessage(messageToSend);
       onMessageSent?.();
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -113,7 +113,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       {/* Encryption Notice */}
       <div className="mt-2 flex items-center justify-center">
         <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">
-          🔒 Messages are end-to-end encrypted
+          💬 Plain text messaging (encryption disabled for testing)
         </span>
       </div>
     </div>

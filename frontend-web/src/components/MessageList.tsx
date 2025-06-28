@@ -1,7 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { format, isToday, isYesterday } from 'date-fns';
 import type { Message, Conversation } from '@shared/types';
-import { useChatStore } from '@/store/chatStore';
 import { useAuth } from '@/hooks/useAuth';
 
 interface MessageListProps {
@@ -11,8 +10,7 @@ interface MessageListProps {
 
 const MessageList: React.FC<MessageListProps> = ({ messages, conversation }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { user, keyPair } = useAuth();
-  const { decryptMessage } = useChatStore();
+  const { user } = useAuth();
 
   useEffect(() => {
     // Scroll to bottom when messages change
@@ -22,75 +20,8 @@ const MessageList: React.FC<MessageListProps> = ({ messages, conversation }) => 
   }, [messages.length]);
 
   const getDecryptedContent = (message: Message): string => {
-    try {
-      if (!keyPair) {
-        console.error('❌ No keyPair available');
-        return 'No encryption keys available';
-      }
-
-      if (!user) {
-        console.error('❌ No user available');
-        return 'No user available';
-      }
-
-      const isOwnMessage = message.senderId === user.id;
-
-      console.group(`🔍 Decrypting message ID: ${message.id}`);
-      console.log('👤 User info:', {
-        currentUserId: user.id,
-        currentUsername: user.username,
-        senderId: message.senderId,
-        senderUsername: message.senderUsername,
-        isOwnMessage
-      });
-
-      // In a two-person conversation, always use the other person's public key
-      const otherUserPublicKey = conversation.otherUser.publicKey;
-
-      console.log('🔑 Key details:', {
-        myPrivateKey: keyPair.privateKey ? `${keyPair.privateKey.substring(0, 8)}...` : 'undefined',
-        myPublicKey: user.publicKey ? `${user.publicKey.substring(0, 8)}...` : 'undefined',
-        otherUserPublicKey: otherUserPublicKey ? `${otherUserPublicKey.substring(0, 8)}...` : 'undefined',
-        otherUsername: conversation.otherUser.username,
-        strategy: 'receiver-uses-other-user-public-key'
-      });
-
-      console.log('📦 Message details:', {
-        hasEncryptedContent: !!message.encryptedContent,
-        hasIV: !!message.iv,
-        encryptedContentLength: message.encryptedContent?.length || 0,
-        ivLength: message.iv?.length || 0
-      });
-
-      if (!otherUserPublicKey) {
-        console.error('❌ Other user public key is undefined');
-        console.groupEnd();
-        return '🔒 Missing other user key';
-      }
-
-      if (!keyPair.privateKey) {
-        console.error('❌ Private key is undefined');
-        console.groupEnd();
-        return '🔒 Missing private key';
-      }
-
-      console.log('🔓 Attempting decryption...');
-      const decrypted = decryptMessage(message, otherUserPublicKey);
-      
-      if (decrypted) {
-        console.log('✅ Decryption successful!');
-        console.groupEnd();
-        return decrypted;
-      } else {
-        console.error('❌ Decryption returned null/empty');
-        console.groupEnd();
-        return '🔒 Failed to decrypt';
-      }
-    } catch (error) {
-      console.error('❌ Failed to decrypt message:', error);
-      console.groupEnd();
-      return '🔒 Decryption failed';
-    }
+    // For now, just return the plain text content since we're not using encryption
+    return message.encryptedContent || 'Empty message';
   };
 
   const formatMessageTime = (timestamp: string): string => {
