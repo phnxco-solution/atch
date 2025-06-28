@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
 import type { Message, Conversation } from '@shared/types';
 import { useChatStore } from '@/store/chatStore';
 import { useAuth } from '@/hooks/useAuth';

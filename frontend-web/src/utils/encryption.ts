@@ -1,66 +1,122 @@
+/**
+ * Modern Encryption Service
+ * Implements hybrid encryption approach for secure messaging
+ * Step 1: Foundation with master key derivation and basic AES encryption
+ */
+
 import CryptoJS from 'crypto-js';
 
-export interface KeyPair {
-  publicKey: string;
-  privateKey: string;
+// Types
+export interface MasterKeyDerivation {
+  masterKey: string;
+  salt: string;
 }
 
-export interface EncryptedMessage {
+export interface EncryptedData {
   encryptedContent: string;
   iv: string;
 }
 
-class EncryptionService {
-  private static readonly KEY_SIZE = 256;
-  private static readonly IV_SIZE = 16;
+export interface UserKeyPair {
+  publicKey: string;
+  privateKey: string;
+  keyId: string; // Unique identifier for this key pair
+}
 
+export interface ConversationKey {
+  keyId: string;
+  conversationId: string;
+  aesKey: string; // The actual AES key for message encryption
+  participants: string[]; // Array of user IDs
+  createdAt: Date;
+}
+
+export interface EncryptedConversationKey {
+  keyId: string;
+  conversationId: string;
+  encryptedKey: EncryptedData; // AES key encrypted with user's master key
+  participants: string[];
+  createdAt: Date;
+}
+
+export interface EncryptionConfig {
+  keySize: number;
+  ivSize: number;
+  iterations: number;
+}
+
+// Configuration following current best practices
+const CONFIG: EncryptionConfig = {
+  keySize: 256, // AES-256
+  ivSize: 16,   // 128-bit IV
+  iterations: 600000, // OWASP 2023 recommendation for PBKDF2
+};
+
+/**
+ * Modern Encryption Service Class
+ * Focuses on security, testability, and maintainability
+ */
+export class EncryptionService {
+  
   /**
-   * Generate a new RSA-like key pair for asymmetric encryption
-   * Note: This is a simplified implementation. In production, consider using Web Crypto API
+   * Step 1: Master Key Derivation
+   * Derives a master key from user password using PBKDF2
+   * This key will be used to encrypt/decrypt conversation keys
    */
-  static async generateKeyPair(): Promise<KeyPair> {
+  static async deriveMasterKey(password: string, salt?: string): Promise<MasterKeyDerivation> {
     try {
-      // Generate a random 256-bit key for each user
-      const privateKey = CryptoJS.lib.WordArray.random(this.KEY_SIZE / 8).toString();
-      
-      // Derive public key from private key (simplified approach)
-      const publicKey = CryptoJS.SHA256(privateKey + 'public_salt').toString();
+      // Validate input
+      if (!password || password.length < 1) {
+        throw new Error('Password cannot be empty');
+      }
 
-      return {
-        privateKey,
-        publicKey
+      // Generate salt if not provided
+      const actualSalt = salt || CryptoJS.lib.WordArray.random(32).toString();
+      
+      console.log('🔑 Deriving master key from password...');
+      
+      // Derive master key using PBKDF2 with current best practices
+      const masterKey = CryptoJS.PBKDF2(password, actualSalt, {
+        keySize: CONFIG.keySize / 32, // Convert bits to words
+        iterations: CONFIG.iterations,
+        hasher: CryptoJS.algo.SHA256
+      });
+
+      const result = {
+        masterKey: masterKey.toString(),
+        salt: actualSalt
       };
+
+      console.log('✅ Master key derived successfully');
+      return result;
+      
     } catch (error) {
-      console.error('Error generating key pair:', error);
-      throw new Error('Failed to generate encryption keys');
+      console.error('❌ Master key derivation failed:', error);
+      throw new Error(`Master key derivation failed: ${error.message}`);
     }
   }
 
   /**
-   * Encrypt a message using AES-256-GCM with a shared secret
+   * Step 1: Basic AES Encryption
+   * Encrypts data using AES-256-CBC with proper IV generation
    */
-  static encryptMessage(
-    message: string, 
-    senderPrivateKey: string, 
-    recipientPublicKey: string
-  ): EncryptedMessage {
+  static encryptData(plaintext: string, key: string): EncryptedData {
     try {
-      console.log('🔐 Encrypting message with keys:', {
-        senderPrivateKeyLength: senderPrivateKey.length,
-        recipientPublicKeyLength: recipientPublicKey.length,
-        messageLength: message.length
-      });
+      // Validate inputs
+      if (!plaintext) {
+        throw new Error('Plaintext cannot be empty');
+      }
+      if (!key) {
+        throw new Error('Encryption key cannot be empty');
+      }
 
-      // Use sender's private key and recipient's public key to derive shared secret
-      // This follows ECDH-like pattern where sender uses their private + recipient's public
-      const sharedSecret = this.generateSharedSecret(senderPrivateKey, recipientPublicKey);
-      console.log('🔑 Generated shared secret for encryption');
+      console.log('🔐 Encrypting data...');
+
+      // Generate random IV for this encryption
+      const iv = CryptoJS.lib.WordArray.random(CONFIG.ivSize);
       
-      // Generate random IV
-      const iv = CryptoJS.lib.WordArray.random(this.IV_SIZE);
-      
-      // Encrypt message
-      const encrypted = CryptoJS.AES.encrypt(message, sharedSecret, {
+      // Encrypt using AES-256-CBC
+      const encrypted = CryptoJS.AES.encrypt(plaintext, key, {
         iv: iv,
         mode: CryptoJS.mode.CBC,
         padding: CryptoJS.pad.Pkcs7
@@ -71,251 +127,289 @@ class EncryptionService {
         iv: iv.toString()
       };
 
-      console.log('✅ Message encrypted successfully');
+      console.log('✅ Data encrypted successfully');
       return result;
+      
     } catch (error) {
-      console.error('❌ Error encrypting message:', error);
-      throw new Error('Failed to encrypt message');
+      console.error('❌ Encryption failed:', error);
+      throw new Error(`Encryption failed: ${error.message}`);
     }
   }
 
   /**
-   * Decrypt a message using AES-256-GCM with a shared secret
+   * Step 1: Basic AES Decryption
+   * Decrypts data using AES-256-CBC
    */
-  static decryptMessage(
-    encryptedMessage: EncryptedMessage,
-    recipientPrivateKey: string,
-    senderPublicKey: string
-  ): string {
+  static decryptData(encryptedData: EncryptedData, key: string): string {
     try {
       // Validate inputs
-      if (!encryptedMessage || !encryptedMessage.encryptedContent || !encryptedMessage.iv) {
-        throw new Error('Invalid encrypted message object');
+      if (!encryptedData?.encryptedContent || !encryptedData?.iv) {
+        throw new Error('Invalid encrypted data');
       }
-      
-      if (!recipientPrivateKey) {
-        throw new Error('Recipient private key is required');
-      }
-      
-      if (!senderPublicKey) {
-        throw new Error('Sender public key is required');
+      if (!key) {
+        throw new Error('Decryption key cannot be empty');
       }
 
-      console.log('🔓 Decrypting message with keys:', {
-        senderPublicKeyLength: senderPublicKey?.length || 'undefined',
-        recipientPrivateKeyLength: recipientPrivateKey?.length || 'undefined',
-        ivLength: encryptedMessage.iv?.length || 'undefined',
-        encryptedContentLength: encryptedMessage.encryptedContent?.length || 'undefined'
-      });
+      console.log('🔓 Decrypting data...');
 
-      // Use recipient's private key and sender's public key to derive shared secret
-      // This follows ECDH-like pattern where recipient uses their private + sender's public
-      const sharedSecret = this.generateSharedSecret(recipientPrivateKey, senderPublicKey);
-      console.log('🔑 Generated shared secret for decryption');
+      // Parse IV from hex string
+      const iv = CryptoJS.enc.Hex.parse(encryptedData.iv);
       
-      // Parse IV
-      const iv = CryptoJS.enc.Hex.parse(encryptedMessage.iv);
-      
-      // Decrypt message
-      const decrypted = CryptoJS.AES.decrypt(encryptedMessage.encryptedContent, sharedSecret, {
+      // Decrypt using AES-256-CBC
+      const decrypted = CryptoJS.AES.decrypt(encryptedData.encryptedContent, key, {
         iv: iv,
         mode: CryptoJS.mode.CBC,
         padding: CryptoJS.pad.Pkcs7
       });
 
-      const decryptedMessage = decrypted.toString(CryptoJS.enc.Utf8);
+      // Convert to UTF-8 string
+      const plaintext = decrypted.toString(CryptoJS.enc.Utf8);
       
-      if (!decryptedMessage) {
-        console.error('❌ Decryption resulted in empty string');
-        throw new Error('Failed to decrypt message - invalid key or corrupted data');
+      if (!plaintext) {
+        throw new Error('Decryption resulted in empty string - invalid key or corrupted data');
       }
 
-      console.log('✅ Message decrypted successfully:', decryptedMessage);
-      return decryptedMessage;
+      console.log('✅ Data decrypted successfully');
+      return plaintext;
+      
     } catch (error) {
-      console.error('❌ Error decrypting message:', error);
-      throw new Error('Failed to decrypt message');
+      console.error('❌ Decryption failed:', error);
+      throw new Error(`Decryption failed: ${error.message}`);
     }
   }
 
   /**
-   * Generate a shared secret from private key and public key using ECDH-like approach
-   * This ensures the same shared secret is generated regardless of who calls it
+   * Step 2: Generate User Key Pair
+   * Creates a public/private key pair for a user
+   * Simplified approach - in production consider using Web Crypto API
    */
-  private static generateSharedSecret(privateKey: string, publicKey: string): string {
+  static generateUserKeyPair(): UserKeyPair {
     try {
-      console.log('🔄 Generating ECDH-like shared secret:', {
-        privateKeyLength: privateKey.length,
-        publicKeyLength: publicKey.length,
-        privateKeyStart: privateKey.substring(0, 16) + '...',
-        publicKeyStart: publicKey.substring(0, 16) + '...'
-      });
+      console.log('🔑 Generating user key pair...');
 
-      // In ECDH, the operation is: privateKey * publicKey (mathematically)
-      // We simulate this by combining them in a specific way
-      // The key insight: Alice's private * Bob's public = Bob's private * Alice's public
+      // Generate a unique key ID
+      const keyId = this.generateSecureRandom(16);
       
-      // Combine private and public key with a deterministic operation
-      const combined = privateKey + '_ecdh_' + publicKey;
+      // Generate private key (256-bit random)
+      const privateKey = this.generateSecureRandom(32);
       
-      console.log('🔀 Keys combined for ECDH simulation:', {
-        combinedLength: combined.length
-      });
-      
-      // Use PBKDF2 to derive a strong shared secret
-      const sharedSecret = CryptoJS.PBKDF2(combined, 'ecdh_salt_2024', {
-        keySize: this.KEY_SIZE / 32,
-        iterations: 10000
-      });
+      // Derive public key from private key (deterministic)
+      const publicKey = CryptoJS.SHA256(privateKey + 'public_derivation_salt').toString();
 
-      const secretString = sharedSecret.toString();
-      console.log('✅ ECDH-like shared secret generated:', {
-        secretLength: secretString.length,
-        secretStart: secretString.substring(0, 16) + '...'
-      });
+      const keyPair = {
+        keyId,
+        publicKey,
+        privateKey
+      };
+
+      console.log('✅ User key pair generated successfully');
+      return keyPair;
       
-      return secretString;
     } catch (error) {
-      console.error('❌ Error generating shared secret:', error);
-      throw new Error('Failed to generate shared secret');
+      console.error('❌ Key pair generation failed:', error);
+      throw new Error(`Key pair generation failed: ${error.message}`);
     }
   }
 
   /**
-   * Hash a password for authentication
+   * Step 2: Generate Conversation Key
+   * Creates a new AES key for encrypting messages in a conversation
    */
-  static hashPassword(password: string, salt?: string): string {
+  static generateConversationKey(conversationId: string, participants: string[]): ConversationKey {
     try {
-      const saltToUse = salt || CryptoJS.lib.WordArray.random(128/8).toString();
-      const hash = CryptoJS.PBKDF2(password, saltToUse, {
-        keySize: 256/32,
-        iterations: 10000
-      });
+      // Validate inputs
+      if (!conversationId) {
+        throw new Error('Conversation ID cannot be empty');
+      }
+      if (!participants || participants.length < 2) {
+        throw new Error('Conversation must have at least 2 participants');
+      }
+
+      console.log('🔐 Generating conversation key...');
+
+      const conversationKey: ConversationKey = {
+        keyId: this.generateSecureRandom(16),
+        conversationId,
+        aesKey: this.generateSecureRandom(32), // 256-bit AES key
+        participants: [...participants].sort(), // Sort for consistency
+        createdAt: new Date()
+      };
+
+      console.log('✅ Conversation key generated successfully');
+      return conversationKey;
       
-      return salt ? hash.toString() : saltToUse + ':' + hash.toString();
     } catch (error) {
-      console.error('Error hashing password:', error);
-      throw new Error('Failed to hash password');
+      console.error('❌ Conversation key generation failed:', error);
+      throw new Error(`Conversation key generation failed: ${error.message}`);
     }
   }
 
   /**
-   * Verify a password against a hash
+   * Step 2: Encrypt Conversation Key for Storage
+   * Encrypts a conversation key with user's master key for safe storage
    */
-  static verifyPassword(password: string, hash: string): boolean {
+  static encryptConversationKey(
+    conversationKey: ConversationKey, 
+    userMasterKey: string
+  ): EncryptedConversationKey {
     try {
-      const [salt, originalHash] = hash.split(':');
-      const computedHash = this.hashPassword(password, salt);
-      return computedHash === originalHash;
+      // Validate inputs
+      if (!conversationKey?.aesKey) {
+        throw new Error('Invalid conversation key');
+      }
+      if (!userMasterKey) {
+        throw new Error('User master key cannot be empty');
+      }
+
+      console.log('🔒 Encrypting conversation key for storage...');
+
+      // Encrypt the AES key with user's master key
+      const encryptedKey = this.encryptData(conversationKey.aesKey, userMasterKey);
+
+      const encryptedConversationKey: EncryptedConversationKey = {
+        keyId: conversationKey.keyId,
+        conversationId: conversationKey.conversationId,
+        encryptedKey,
+        participants: conversationKey.participants,
+        createdAt: conversationKey.createdAt
+      };
+
+      console.log('✅ Conversation key encrypted for storage');
+      return encryptedConversationKey;
+      
     } catch (error) {
-      console.error('Error verifying password:', error);
-      return false;
+      console.error('❌ Conversation key encryption failed:', error);
+      throw new Error(`Conversation key encryption failed: ${error.message}`);
     }
   }
 
   /**
-   * Generate a secure random string for IDs, tokens, etc.
+   * Step 2: Decrypt Conversation Key from Storage
+   * Decrypts a conversation key using user's master key
    */
+  static decryptConversationKey(
+    encryptedConversationKey: EncryptedConversationKey,
+    userMasterKey: string
+  ): ConversationKey {
+    try {
+      // Validate inputs
+      if (!encryptedConversationKey?.encryptedKey) {
+        throw new Error('Invalid encrypted conversation key');
+      }
+      if (!userMasterKey) {
+        throw new Error('User master key cannot be empty');
+      }
+
+      console.log('🔓 Decrypting conversation key from storage...');
+
+      // Decrypt the AES key
+      const aesKey = this.decryptData(encryptedConversationKey.encryptedKey, userMasterKey);
+
+      const conversationKey: ConversationKey = {
+        keyId: encryptedConversationKey.keyId,
+        conversationId: encryptedConversationKey.conversationId,
+        aesKey,
+        participants: encryptedConversationKey.participants,
+        createdAt: encryptedConversationKey.createdAt
+      };
+
+      console.log('✅ Conversation key decrypted successfully');
+      return conversationKey;
+      
+    } catch (error) {
+      console.error('❌ Conversation key decryption failed:', error);
+      throw new Error(`Conversation key decryption failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Step 2: Encrypt Message with Conversation Key
+   * Encrypts a message using the conversation's AES key
+   */
+  static encryptMessage(message: string, conversationKey: ConversationKey): EncryptedData {
+    try {
+      // Validate inputs
+      if (!message) {
+        throw new Error('Message cannot be empty');
+      }
+      if (!conversationKey?.aesKey) {
+        throw new Error('Invalid conversation key');
+      }
+
+      console.log('💬 Encrypting message with conversation key...');
+
+      const encrypted = this.encryptData(message, conversationKey.aesKey);
+
+      console.log('✅ Message encrypted successfully');
+      return encrypted;
+      
+    } catch (error) {
+      console.error('❌ Message encryption failed:', error);
+      throw new Error(`Message encryption failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Step 2: Decrypt Message with Conversation Key
+   * Decrypts a message using the conversation's AES key
+   */
+  static decryptMessage(encryptedMessage: EncryptedData, conversationKey: ConversationKey): string {
+    try {
+      // Validate inputs
+      if (!encryptedMessage?.encryptedContent) {
+        throw new Error('Invalid encrypted message');
+      }
+      if (!conversationKey?.aesKey) {
+        throw new Error('Invalid conversation key');
+      }
+
+      console.log('💬 Decrypting message with conversation key...');
+
+      const decrypted = this.decryptData(encryptedMessage, conversationKey.aesKey);
+
+      console.log('✅ Message decrypted successfully');
+      return decrypted;
+      
+    } catch (error) {
+      console.error('❌ Message decryption failed:', error);
+      throw new Error(`Message decryption failed: ${error.message}`);
+    }
+  }
   static generateSecureRandom(length: number = 32): string {
     try {
-      return CryptoJS.lib.WordArray.random(length).toString();
-    } catch (error) {
-      console.error('Error generating secure random:', error);
-      throw new Error('Failed to generate secure random string');
-    }
-  }
-
-  /**
-   * Derive encryption key from password (for local storage encryption)
-   */
-  static deriveKeyFromPassword(password: string, salt: string): string {
-    try {
-      const key = CryptoJS.PBKDF2(password, salt, {
-        keySize: this.KEY_SIZE / 32,
-        iterations: 100000 // Higher iterations for password-based encryption
-      });
-      
-      return key.toString();
-    } catch (error) {
-      console.error('Error deriving key from password:', error);
-      throw new Error('Failed to derive encryption key');
-    }
-  }
-
-  /**
-   * Encrypt data for local storage
-   */
-  static encryptForStorage(data: string, key: string): string {
-    try {
-      const iv = CryptoJS.lib.WordArray.random(this.IV_SIZE);
-      const encrypted = CryptoJS.AES.encrypt(data, key, {
-        iv: iv,
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-      });
-
-      return iv.toString() + ':' + encrypted.toString();
-    } catch (error) {
-      console.error('Error encrypting for storage:', error);
-      throw new Error('Failed to encrypt data for storage');
-    }
-  }
-
-  /**
-   * Decrypt data from local storage
-   */
-  static decryptFromStorage(encryptedData: string, key: string): string {
-    try {
-      const [ivHex, encryptedContent] = encryptedData.split(':');
-      const iv = CryptoJS.enc.Hex.parse(ivHex);
-      
-      const decrypted = CryptoJS.AES.decrypt(encryptedContent, key, {
-        iv: iv,
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-      });
-
-      const decryptedData = decrypted.toString(CryptoJS.enc.Utf8);
-      
-      if (!decryptedData) {
-        throw new Error('Failed to decrypt storage data');
+      if (length < 1) {
+        throw new Error('Length must be positive');
       }
 
-      return decryptedData;
-    } catch (error) {
-      console.error('Error decrypting from storage:', error);
-      throw new Error('Failed to decrypt data from storage');
-    }
-  }
-
-  /**
-   * Validate that a public key is properly formatted
-   */
-  static validatePublicKey(publicKey: string): boolean {
-    try {
-      // Basic validation - check if it's a valid hex string of expected length
-      const hexRegex = /^[a-fA-F0-9]+$/;
-      return hexRegex.test(publicKey) && publicKey.length === 64; // 32 bytes = 64 hex chars
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
-   * Generate a fingerprint for a public key (for verification)
-   */
-  static generateKeyFingerprint(publicKey: string): string {
-    try {
-      const hash = CryptoJS.SHA256(publicKey);
-      const fingerprint = hash.toString().substring(0, 16);
+      return CryptoJS.lib.WordArray.random(length).toString();
       
-      // Format as groups of 4 characters
-      return fingerprint.match(/.{1,4}/g)?.join(' ') || fingerprint;
     } catch (error) {
-      console.error('Error generating key fingerprint:', error);
-      throw new Error('Failed to generate key fingerprint');
+      console.error('❌ Secure random generation failed:', error);
+      throw new Error(`Random generation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Step 1: Key Validation
+   * Validates that a key meets security requirements
+   */
+  static validateKey(key: string): boolean {
+    try {
+      // Check if key exists and has reasonable length
+      if (!key || key.length < 32) {
+        return false;
+      }
+
+      // Check if it's a valid hex string
+      const hexRegex = /^[a-fA-F0-9]+$/;
+      return hexRegex.test(key);
+      
+    } catch (error) {
+      console.error('❌ Key validation failed:', error);
+      return false;
     }
   }
 }
 
+// Export singleton instance for convenience
 export default EncryptionService;

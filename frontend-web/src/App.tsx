@@ -10,6 +10,9 @@ import RegisterPage from '@/pages/RegisterPage';
 import ChatPage from '@/pages/ChatPage';
 import LoadingSpinner from '@/components/LoadingSpinner';
 
+// Development components
+import EncryptionTester from '@/components/EncryptionTester';
+
 function App() {
   const { isAuthenticated, isLoading, verifyToken } = useAuth();
   const { isConnected } = useSocket();
@@ -47,6 +50,15 @@ function App() {
             path="/chat" 
             element={
               isAuthenticated ? <ChatPage /> : <Navigate to="/login" replace />
+            } 
+          />
+          {/* Development/Testing Route */}
+          <Route 
+            path="/test-encryption" 
+            element={
+              <div className="min-h-screen bg-gray-100 py-8">
+                <EncryptionTester />
+              </div>
             } 
           />
           <Route 
@@ -95,6 +107,18 @@ function App() {
           <div className="fixed bottom-4 left-4 bg-yellow-100 border border-yellow-300 text-yellow-800 px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2 z-50">
             <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
             <span className="text-sm font-medium">Reconnecting...</span>
+          </div>
+        )}
+
+        {/* Development Helper - Show test link in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="fixed top-4 right-4 z-50">
+            <a
+              href="/test-encryption"
+              className="bg-purple-600 text-white px-3 py-1 rounded-md text-sm hover:bg-purple-700 transition-colors"
+            >
+              🔐 Test Encryption
+            </a>
           </div>
         )}
       </div>
