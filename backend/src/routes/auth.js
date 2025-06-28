@@ -6,19 +6,35 @@ const { userValidation, validateRequest } = require('../utils/validation');
 const { authRateLimit, apiRateLimit } = require('../middleware/rateLimiting');
 const { authenticateToken } = require('../middleware/auth');
 
-// Register new user
+// Register new user - Step 3 updated
 router.post('/register', 
   authRateLimit,
   validateRequest(userValidation.register),
   async (req, res) => {
     try {
-      const { username, email, password, publicKey } = req.body;
+      const { username, email, password, publicKey, masterKeySalt } = req.body;
+
+      // Validate Step 3 encryption fields
+      if (!publicKey) {
+        return res.status(400).json({
+          success: false,
+          message: 'Public key is required'
+        });
+      }
+
+      if (!masterKeySalt) {
+        return res.status(400).json({
+          success: false,
+          message: 'Master key salt is required'
+        });
+      }
 
       const user = await UserService.createUser({
         username,
         email,
         password,
-        publicKey
+        publicKey,
+        masterKeySalt
       });
 
       const token = AuthUtils.generateToken({ userId: user.id });
@@ -31,7 +47,8 @@ router.post('/register',
             id: user.id,
             username: user.username,
             email: user.email,
-            publicKey: user.publicKey
+            publicKey: user.publicKey,
+            masterKeySalt: user.masterKeySalt
           },
           token
         }
@@ -39,8 +56,8 @@ router.post('/register',
     } catch (error) {
       console.error('Registration error:', error);
 
-      if (error.message === 'Username or email already exists') {
-        return res.status(409).json({
+      if (error.message.includes('already exists') || error.message.includes('required')) {
+        return res.status(400).json({
           success: false,
           message: error.message
         });
@@ -54,7 +71,7 @@ router.post('/register',
   }
 );
 
-// Login user
+// Login user - Step 3 updated
 router.post('/login',
   authRateLimit,
   validateRequest(userValidation.login),
@@ -73,7 +90,8 @@ router.post('/login',
             id: user.id,
             username: user.username,
             email: user.email,
-            publicKey: user.publicKey
+            publicKey: user.publicKey,
+            masterKeySalt: user.masterKeySalt
           },
           token
         }
@@ -82,7 +100,7 @@ router.post('/login',
       console.error('Login error:', error);
 
       if (error.message === 'Invalid credentials') {
-        return res.status(401).json({
+        return res.status(400).json({
           success: false,
           message: 'Invalid username or password'
         });
@@ -96,7 +114,7 @@ router.post('/login',
   }
 );
 
-// Get current user profile
+// Get current user profile - Step 3 updated
 router.get('/profile',
   authenticateToken,
   apiRateLimit,
@@ -112,6 +130,7 @@ router.get('/profile',
             username: user.username,
             email: user.email,
             publicKey: user.publicKey,
+            masterKeySalt: user.masterKeySalt,
             createdAt: user.createdAt
           }
         }

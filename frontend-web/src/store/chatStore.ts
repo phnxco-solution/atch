@@ -1,40 +1,38 @@
+/**
+ * Chat Store - Step 5 Real Implementation
+ * Uses conversation-based encryption system
+ */
+
 import { create } from 'zustand';
-import type { Conversation, Message, User } from '@shared/types';
-import apiService from '@/services/api';
+import encryptionManager from '@/services/encryptionManager';
+import apiService, { User, Message, ConversationInfo } from '@/services/api';
 import socketService from '@/services/socket';
-import DebugEncryptionService from '@/utils/debugEncryption';
-import { useAuthStore } from './authStore';
 
 interface ChatState {
-  conversations: Conversation[];
-  currentConversation: Conversation | null;
-  messages: Record<number, Message[]>; // conversationId -> Message[]
+  conversations: ConversationInfo[];
+  currentConversationId: string | null;
+  messages: Record<string, Array<Message & { decryptedContent?: string }>>;
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
   isSendingMessage: boolean;
   error: string | null;
-  typingUsers: Record<number, Set<number>>; // conversationId -> Set of user IDs
+  typingUsers: Record<string, Set<number>>; // conversationId -> Set of user IDs
   
   // Actions
   loadConversations: () => Promise<void>;
-  selectConversation: (conversation: Conversation) => Promise<void>;
-  loadMessages: (conversationId: number, offset?: number) => Promise<void>;
-  sendMessage: (recipientId: number, content: string) => Promise<void>;
-  createConversation: (participantId: number) => Promise<Conversation>;
+  selectConversation: (conversationId: string) => Promise<void>;
+  loadMessages: (conversationId: string) => Promise<void>;
+  sendMessage: (conversationId: string, content: string) => Promise<void>;
+  startConversation: (participantUsername: string) => Promise<string>;
   addMessage: (message: Message) => void;
-  updateMessage: (message: Message) => void;
-  deleteMessage: (messageId: number, conversationId: number) => Promise<void>;
-  setTyping: (conversationId: number, userId: number, isTyping: boolean) => void;
+  setTyping: (conversationId: string, userId: number, isTyping: boolean) => void;
   clearError: () => void;
   reset: () => void;
-  
-  // Decryption helpers
-  decryptMessage: (message: Message, senderPublicKey: string) => string | null;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
-  currentConversation: null,
+  currentConversationId: null,
   messages: {},
   isLoadingConversations: false,
   isLoadingMessages: false,
@@ -46,13 +44,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       set({ isLoadingConversations: true, error: null });
       
-      const conversations = await apiService.getConversations();
+      console.log('📂 Loading conversations...');
+      
+      const conversations = await apiService.getUserConversations();
       
       set({
         conversations,
         isLoadingConversations: false
       });
+
+      console.log(`✅ Loaded ${conversations.length} conversations`);
+      
     } catch (error) {
+      console.error('❌ Failed to load conversations:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load conversations';
       set({
         isLoadingConversations: false,
@@ -61,52 +65,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  selectConversation: async (conversation: Conversation) => {
+  selectConversation: async (conversationId: string) => {
     try {
-      set({ currentConversation: conversation, error: null });
+      set({ currentConversationId: conversationId, error: null });
       
-      // Join the conversation room
-      socketService.joinConversation(conversation.id);
+      console.log(`📋 Selecting conversation: ${conversationId}`);
+      
+      // Join the conversation room for real-time updates
+      socketService.joinConversation(conversationId);
       
       // Load messages if not already loaded
       const { messages } = get();
-      if (!messages[conversation.id]) {
-        await get().loadMessages(conversation.id);
+      if (!messages[conversationId]) {
+        await get().loadMessages(conversationId);
       }
       
     } catch (error) {
+      console.error('❌ Failed to select conversation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to select conversation';
       set({ error: errorMessage });
     }
   },
 
-  loadMessages: async (conversationId: number, offset = 0) => {
+  loadMessages: async (conversationId: string) => {
     try {
       set({ isLoadingMessages: true, error: null });
       
-      const { messages: newMessages } = await apiService.getConversationMessages(
-        conversationId,
-        50,
-        offset
-      );
+      console.log(`📥 Loading messages for conversation: ${conversationId}`);
       
-      const { messages } = get();
-      const existingMessages = messages[conversationId] || [];
-      
-      // Merge messages (prepend for pagination)
-      const allMessages = offset === 0 
-        ? newMessages 
-        : [...newMessages, ...existingMessages];
+      // Use encryption manager to get and decrypt messages
+      const result = await encryptionManager.getConversationMessages(conversationId, 50);
       
       set({
         messages: {
-          ...messages,
-          [conversationId]: allMessages
+          ...get().messages,
+          [conversationId]: result.messages
         },
         isLoadingMessages: false
       });
+
+      console.log(`✅ Loaded ${result.messages.length} messages`);
       
     } catch (error) {
+      console.error('❌ Failed to load messages:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load messages';
       set({
         isLoadingMessages: false,
@@ -115,43 +116,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async (recipientId: number, content: string) => {
+  sendMessage: async (conversationId: string, content: string) => {
     try {
       set({ isSendingMessage: true, error: null });
       
-      const authStore = useAuthStore.getState();
-      const { keyPair, user } = authStore;
+      console.log(`📤 Sending message to conversation: ${conversationId}`);
       
-      if (!keyPair || !user) {
-        throw new Error('User not authenticated or missing encryption keys');
-      }
+      // Use encryption manager to send encrypted message
+      const message = await encryptionManager.sendMessage(conversationId, content);
       
-      // Find recipient's public key
-      const { currentConversation } = get();
-      if (!currentConversation) {
-        throw new Error('No conversation selected');
-      }
+      // Add to local state with decrypted content
+      const messageWithDecrypted = {
+        ...message,
+        decryptedContent: content
+      };
       
-      const recipientPublicKey = currentConversation.otherUser.publicKey;
+      const { messages } = get();
+      const conversationMessages = messages[conversationId] || [];
       
-      // Encrypt the message
-      const encryptedMessage = DebugEncryptionService.encryptMessage(
-        content,
-        keyPair.privateKey,
-        recipientPublicKey
-      );
-      
-      // Send via Socket.IO for real-time delivery
+      set({
+        messages: {
+          ...messages,
+          [conversationId]: [...conversationMessages, messageWithDecrypted]
+        },
+        isSendingMessage: false
+      });
+
+      // Send via Socket.IO for real-time delivery to other participants
       socketService.sendMessage({
-        recipientId,
-        encryptedContent: encryptedMessage.encryptedContent,
-        iv: encryptedMessage.iv,
+        conversationId,
+        encryptedContent: message.encryptedContent,
+        iv: message.iv,
         messageType: 'text'
       });
-      
-      set({ isSendingMessage: false });
+
+      console.log('✅ Message sent successfully');
       
     } catch (error) {
+      console.error('❌ Failed to send message:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
       set({
         isSendingMessage: false,
@@ -161,34 +163,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createConversation: async (participantId: number) => {
+  startConversation: async (participantUsername: string) => {
     try {
-      const conversation = await apiService.createConversation(participantId);
+      console.log(`💬 Starting conversation with: ${participantUsername}`);
       
-      const { conversations } = get();
-      const existingIndex = conversations.findIndex(c => c.id === conversation.id);
+      // Use encryption manager to start conversation
+      const conversationId = await encryptionManager.startConversation(participantUsername);
       
-      if (existingIndex >= 0) {
-        // Update existing conversation
-        const updatedConversations = [...conversations];
-        updatedConversations[existingIndex] = conversation;
-        set({ conversations: updatedConversations });
-      } else {
-        // Add new conversation
-        set({ conversations: [conversation, ...conversations] });
-      }
+      // Reload conversations to get the new one
+      await get().loadConversations();
       
-      return conversation;
+      // Select the new conversation
+      await get().selectConversation(conversationId);
+
+      console.log(`✅ Conversation started: ${conversationId}`);
+      
+      return conversationId;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create conversation';
+      console.error('❌ Failed to start conversation:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start conversation';
       set({ error: errorMessage });
       throw error;
     }
   },
 
   addMessage: (message: Message) => {
-    const { messages, conversations } = get();
-    const conversationMessages = messages[message.conversationId] || [];
+    const { messages, currentConversationId } = get();
+    const conversationId = message.conversationId;
+    const conversationMessages = messages[conversationId] || [];
     
     // Check if message already exists to avoid duplicates
     const existingMessage = conversationMessages.find(m => m.id === message.id);
@@ -196,75 +198,52 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
     
-    // Add message to the end (newest)
-    const updatedMessages = [...conversationMessages, message];
-    
-    set({
-      messages: {
-        ...messages,
-        [message.conversationId]: updatedMessages
-      }
-    });
-    
-    // Update conversation's last message
-    const updatedConversations = conversations.map(conv => {
-      if (conv.id === message.conversationId) {
-        return {
-          ...conv,
-          lastMessage: {
-            content: message.encryptedContent,
-            iv: message.iv,
-            senderId: message.senderId,
-            timestamp: message.createdAt
-          },
-          updatedAt: message.createdAt
+    // Try to decrypt the message if it's for current conversation
+    let messageWithDecrypted = message;
+    if (conversationId === currentConversationId) {
+      try {
+        // Get conversation data from encryption manager
+        const cachedConversations = encryptionManager.getCachedConversations();
+        const conversationData = cachedConversations.find(c => c.conversationId === conversationId);
+        
+        if (conversationData) {
+          const { EncryptionService } = require('../utils/encryption');
+          const decryptedContent = EncryptionService.decryptMessage(
+            {
+              encryptedContent: message.encryptedContent,
+              iv: message.iv
+            },
+            conversationData.conversationKey
+          );
+          
+          messageWithDecrypted = {
+            ...message,
+            decryptedContent
+          };
+        }
+      } catch (error) {
+        console.error('Failed to decrypt incoming message:', error);
+        messageWithDecrypted = {
+          ...message,
+          decryptedContent: '[Failed to decrypt]'
         };
       }
-      return conv;
-    });
+    }
     
-    set({ conversations: updatedConversations });
-  },
-
-  updateMessage: (message: Message) => {
-    const { messages } = get();
-    const conversationMessages = messages[message.conversationId] || [];
-    
-    const updatedMessages = conversationMessages.map(m => 
-      m.id === message.id ? message : m
-    );
+    // Add message to the end (newest)
+    const updatedMessages = [...conversationMessages, messageWithDecrypted];
     
     set({
       messages: {
         ...messages,
-        [message.conversationId]: updatedMessages
+        [conversationId]: updatedMessages
       }
     });
+
+    console.log(`📨 New message added to conversation: ${conversationId}`);
   },
 
-  deleteMessage: async (messageId: number, conversationId: number) => {
-    try {
-      await apiService.deleteMessage(messageId);
-      
-      const { messages } = get();
-      const conversationMessages = messages[conversationId] || [];
-      const updatedMessages = conversationMessages.filter(m => m.id !== messageId);
-      
-      set({
-        messages: {
-          ...messages,
-          [conversationId]: updatedMessages
-        }
-      });
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete message';
-      set({ error: errorMessage });
-      throw error;
-    }
-  },
-
-  setTyping: (conversationId: number, userId: number, isTyping: boolean) => {
+  setTyping: (conversationId: string, userId: number, isTyping: boolean) => {
     const { typingUsers } = get();
     const conversationTyping = typingUsers[conversationId] || new Set();
     
@@ -282,51 +261,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  decryptMessage: (message: Message, senderPublicKey: string): string | null => {
-    try {
-      const authStore = useAuthStore.getState();
-      const { keyPair } = authStore;
-      
-      console.log('🏪 Store decryptMessage called:', {
-        messageId: message.id,
-        hasKeyPair: !!keyPair,
-        hasSenderPublicKey: !!senderPublicKey,
-        keyPairPrivateKey: keyPair?.privateKey ? `${keyPair.privateKey.substring(0, 8)}...` : 'undefined',
-        senderPublicKey: senderPublicKey ? `${senderPublicKey.substring(0, 8)}...` : 'undefined'
-      });
-      
-      if (!keyPair) {
-        console.error('❌ No encryption keys available in store');
-        return null;
-      }
-      
-      if (!keyPair.privateKey) {
-        console.error('❌ No private key available in keyPair');
-        return null;
-      }
-      
-      if (!senderPublicKey) {
-        console.error('❌ No sender public key provided');
-        return null;
-      }
-      
-      const decryptedContent = DebugEncryptionService.debugDecryptMessage(
-        {
-          encryptedContent: message.encryptedContent,
-          iv: message.iv
-        },
-        keyPair.privateKey,
-        senderPublicKey,
-        message.id
-      );
-      
-      return decryptedContent;
-    } catch (error) {
-      console.error('❌ Failed to decrypt message in store:', error);
-      return null;
-    }
-  },
-
   clearError: () => {
     set({ error: null });
   },
@@ -334,7 +268,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   reset: () => {
     set({
       conversations: [],
-      currentConversation: null,
+      currentConversationId: null,
       messages: {},
       isLoadingConversations: false,
       isLoadingMessages: false,
@@ -342,19 +276,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       typingUsers: {}
     });
+    
+    console.log('🗑️ Chat store reset');
   }
 }));
 
 // Setup socket event listeners
 socketService.onNewMessage((message: Message) => {
+  console.log('🔔 New message received via socket:', message.id);
   useChatStore.getState().addMessage(message);
 });
 
 socketService.onMessageSent((message: Message) => {
+  console.log('✅ Message sent confirmation via socket:', message.id);
   useChatStore.getState().addMessage(message);
 });
 
 socketService.onMessageError((error: { message: string }) => {
+  console.error('❌ Message error via socket:', error.message);
   useChatStore.setState({ 
     error: error.message,
     isSendingMessage: false 

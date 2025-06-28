@@ -1,14 +1,17 @@
+/**
+ * Auth Store - Step 6 Simplified: Simple Session Management
+ * No password prompts - seamless session restoration
+ */
+
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { User } from '@shared/types';
-import DebugEncryptionService, { type KeyPair } from '@/utils/debugEncryption';
-import apiService from '@/services/api';
+import encryptionManager from '@/services/encryptionManager';
+import apiService, { User } from '@/services/api';
 import socketService from '@/services/socket';
 
 interface AuthState {
   user: User | null;
   token: string | null;
-  keyPair: KeyPair | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
@@ -23,8 +26,6 @@ interface AuthState {
   logout: () => Promise<void>;
   verifyToken: () => Promise<void>;
   clearError: () => void;
-  setKeyPair: (keyPair: KeyPair) => void;
-  generateNewKeyPair: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -32,7 +33,6 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       token: null,
-      keyPair: null,
       isAuthenticated: false,
       isLoading: false,
       error: null,
@@ -41,47 +41,36 @@ export const useAuthStore = create<AuthState>()(
         try {
           set({ isLoading: true, error: null });
 
-          const authResponse = await apiService.login({ username, password });
-          
-          // Check if we have a stored keyPair for this user
-          const stored = get();
-          let keyPair = stored.keyPair;
-          
-          // Important: For existing users who don't have a keyPair stored locally,
-          // we need to generate a new one. In a real app, you'd want key recovery mechanisms.
-          if (!keyPair) {
-            console.warn('⚠️ No stored keyPair found for user. Generating new encryption keys.');
-            console.warn('⚠️ Note: This will prevent decrypting previously sent messages.');
-            keyPair = await DebugEncryptionService.generateKeyPair();
-            
-            // IMPORTANT: Update the server with the new public key
-            try {
-              console.log('🔄 Updating server with new public key...');
-              await apiService.updateUserPublicKey(keyPair.publicKey);
-              console.log('✅ Server public key updated successfully');
-              
-              // Update the user object with new public key
-              authResponse.user.publicKey = keyPair.publicKey;
-            } catch (error) {
-              console.error('❌ Failed to update server public key:', error);
-              // Continue anyway - user can still send new messages
-            }
+          console.log('🔐 Starting encrypted login...');
+
+          // Use encryption manager for login
+          const user = await encryptionManager.loginUser({ username, password });
+          const token = apiService.getToken();
+
+          if (!token) {
+            throw new Error('No authentication token received');
           }
           
           // Connect to socket with token
-          await socketService.connect(authResponse.token);
+          await socketService.connect(token);
 
           set({
-            user: authResponse.user,
-            token: authResponse.token,
-            keyPair,
+            user,
+            token,
             isAuthenticated: true,
             isLoading: false,
             error: null
           });
 
+          console.log('✅ Encrypted login successful');
+
         } catch (error) {
+          console.error('❌ Login failed:', error);
           const errorMessage = error instanceof Error ? error.message : 'Login failed';
+          
+          // Clear encryption session on failure
+          encryptionManager.logout();
+          
           set({
             user: null,
             token: null,
@@ -97,32 +86,39 @@ export const useAuthStore = create<AuthState>()(
         try {
           set({ isLoading: true, error: null });
 
-          // Generate key pair for encryption
-          const keyPair = await DebugEncryptionService.generateKeyPair();
+          console.log('🔐 Starting encrypted registration...');
 
-          const authResponse = await apiService.register({
-            ...userData,
-            publicKey: keyPair.publicKey
-          });
+          // Use encryption manager for registration
+          const user = await encryptionManager.registerUser(userData);
+          const token = apiService.getToken();
+
+          if (!token) {
+            throw new Error('No authentication token received');
+          }
 
           // Connect to socket with token
-          await socketService.connect(authResponse.token);
+          await socketService.connect(token);
 
           set({
-            user: authResponse.user,
-            token: authResponse.token,
-            keyPair,
+            user,
+            token,
             isAuthenticated: true,
             isLoading: false,
             error: null
           });
 
+          console.log('✅ Encrypted registration successful');
+
         } catch (error) {
+          console.error('❌ Registration failed:', error);
           const errorMessage = error instanceof Error ? error.message : 'Registration failed';
+          
+          // Clear encryption session on failure
+          encryptionManager.logout();
+          
           set({
             user: null,
             token: null,
-            keyPair: null,
             isAuthenticated: false,
             isLoading: false,
             error: errorMessage
@@ -133,8 +129,13 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         try {
+          console.log('🚪 Starting logout...');
+
           // Disconnect socket
           socketService.disconnect();
+          
+          // Clear encryption session
+          encryptionManager.logout();
           
           // Clear API token
           await apiService.logout();
@@ -142,19 +143,21 @@ export const useAuthStore = create<AuthState>()(
           set({
             user: null,
             token: null,
-            keyPair: null,
             isAuthenticated: false,
             isLoading: false,
             error: null
           });
 
+          console.log('✅ Logout completed');
+
         } catch (error) {
-          console.error('Logout error:', error);
+          console.error('❌ Logout error:', error);
+          
           // Force clear state even if logout fails
+          encryptionManager.logout();
           set({
             user: null,
             token: null,
-            keyPair: null,
             isAuthenticated: false,
             isLoading: false,
             error: null
@@ -173,7 +176,22 @@ export const useAuthStore = create<AuthState>()(
         try {
           set({ isLoading: true, error: null });
 
+          console.log('🔍 Verifying token...');
+
           const user = await apiService.verifyToken();
+          
+          // Check if we have active encryption session
+          const hasActiveSession = encryptionManager.hasActiveSession();
+
+          if (hasActiveSession) {
+            // Update session with user data
+            encryptionManager.updateSessionUser(user);
+            console.log('✅ Encryption session is active');
+          } else {
+            // No encryption session - user needs to login again
+            console.warn('⚠️ No encryption session found - user will need to login again');
+            throw new Error('No encryption session - please login again');
+          }
           
           // Connect to socket if not already connected
           if (!socketService.isConnected()) {
@@ -187,12 +205,16 @@ export const useAuthStore = create<AuthState>()(
             error: null
           });
 
+          console.log('✅ Token verification successful');
+
         } catch (error) {
-          console.error('Token verification failed:', error);
+          console.error('❌ Token verification failed:', error);
+          
+          // Clear everything on verification failure
+          encryptionManager.logout();
           set({
             user: null,
             token: null,
-            keyPair: null,
             isAuthenticated: false,
             isLoading: false,
             error: null
@@ -202,20 +224,6 @@ export const useAuthStore = create<AuthState>()(
 
       clearError: () => {
         set({ error: null });
-      },
-
-      setKeyPair: (keyPair: KeyPair) => {
-        set({ keyPair });
-      },
-
-      generateNewKeyPair: async () => {
-        try {
-          const keyPair = await DebugEncryptionService.generateKeyPair();
-          set({ keyPair });
-        } catch (error) {
-          console.error('Failed to generate key pair:', error);
-          throw error;
-        }
       }
     }),
     {
@@ -223,7 +231,6 @@ export const useAuthStore = create<AuthState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         token: state.token,
-        keyPair: state.keyPair,
         user: state.user
       })
     }

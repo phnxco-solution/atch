@@ -9,6 +9,8 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const conversationRoutes = require('./routes/conversations');
 const messageRoutes = require('./routes/messages');
+const conversationKeyRoutes = require('./routes/conversationKeys');
+const testRoutes = require('./routes/test');
 
 // Import middleware
 const { authenticateSocket } = require('./middleware/auth');
@@ -88,6 +90,12 @@ class ChatServer {
     this.app.use('/api/auth', authRoutes);
     this.app.use('/api/conversations', conversationRoutes);
     this.app.use('/api/messages', messageRoutes);
+    this.app.use('/api/conversation-keys', conversationKeyRoutes);
+    
+    // Development/Testing routes
+    if (process.env.NODE_ENV === 'development') {
+      this.app.use('/api/test', testRoutes);
+    }
 
     // API documentation endpoint
     this.app.get('/api', (req, res) => {

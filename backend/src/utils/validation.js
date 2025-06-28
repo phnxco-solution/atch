@@ -36,6 +36,12 @@ const userValidation = {
       .required()
       .messages({
         'any.required': 'Public key is required for encryption'
+      }),
+    
+    masterKeySalt: Joi.string()
+      .required()
+      .messages({
+        'any.required': 'Master key salt is required for encryption'
       })
   }),
 
@@ -103,7 +109,7 @@ const conversationValidation = {
 function validateRequest(schema) {
   return (req, res, next) => {
     const { error } = schema.validate(req.body);
-    
+
     if (error) {
       return res.status(400).json({
         success: false,

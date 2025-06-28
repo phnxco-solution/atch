@@ -13,25 +13,27 @@ async function migrate() {
   const connection = await mysql.createConnection(dbConfig);
   
   try {
-    console.log('Starting database migration...');
+    console.log('Starting database migration for Step 3...');
 
     // Drop existing tables if they exist (for clean migration)
     console.log('Dropping existing tables if they exist...');
     await connection.execute('SET FOREIGN_KEY_CHECKS = 0');
+    await connection.execute('DROP TABLE IF EXISTS conversation_keys');
     await connection.execute('DROP TABLE IF EXISTS user_sessions');
     await connection.execute('DROP TABLE IF EXISTS messages');
     await connection.execute('DROP TABLE IF EXISTS conversations');
     await connection.execute('DROP TABLE IF EXISTS users');
     await connection.execute('SET FOREIGN_KEY_CHECKS = 1');
 
-    // Create users table
+    // Create users table - Step 3 updates
     await connection.execute(`
       CREATE TABLE users (
         id INT PRIMARY KEY AUTO_INCREMENT,
         username VARCHAR(50) UNIQUE NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
-        public_key TEXT NOT NULL,
+        master_key_salt VARCHAR(128) NOT NULL,
+        public_key VARCHAR(128) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_username (username),
@@ -43,12 +45,14 @@ async function migrate() {
     await connection.execute(`
       CREATE TABLE conversations (
         id INT PRIMARY KEY AUTO_INCREMENT,
+        conversation_id VARCHAR(64) UNIQUE NOT NULL,
         user1_id INT NOT NULL,
         user2_id INT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_conversation_id (conversation_id),
         INDEX idx_users (user1_id, user2_id),
         INDEX idx_user1 (user1_id),
         INDEX idx_user2 (user2_id),
@@ -56,17 +60,34 @@ async function migrate() {
       )
     `);
 
-    // Create messages table
+    // Create conversation_keys table - Step 3 addition
+    await connection.execute(`
+      CREATE TABLE conversation_keys (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        key_id VARCHAR(32) NOT NULL,
+        conversation_id VARCHAR(64) NOT NULL,
+        user_id INT NOT NULL,
+        encrypted_aes_key TEXT NOT NULL,
+        iv VARCHAR(32) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_conversation_user (conversation_id, user_id),
+        INDEX idx_key_id (key_id),
+        INDEX idx_user_id (user_id),
+        UNIQUE KEY unique_user_conversation (user_id, conversation_id)
+      )
+    `);
+
+    // Create messages table - Step 3 updates
     await connection.execute(`
       CREATE TABLE messages (
         id INT PRIMARY KEY AUTO_INCREMENT,
-        conversation_id INT NOT NULL,
+        conversation_id VARCHAR(64) NOT NULL,
         sender_id INT NOT NULL,
         encrypted_content TEXT NOT NULL,
         iv VARCHAR(32) NOT NULL,
         message_type ENUM('text') DEFAULT 'text',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
         FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
         INDEX idx_conversation_time (conversation_id, created_at),
         INDEX idx_sender (sender_id)
@@ -86,8 +107,13 @@ async function migrate() {
       )
     `);
 
-    console.log('✅ Database migration completed successfully!');
-    console.log('Created tables: users, conversations, messages, user_sessions');
+    console.log('✅ Step 3 database migration completed successfully!');
+    console.log('Created tables: users (updated), conversations (updated), conversation_keys (new), messages (updated), user_sessions');
+    console.log('Key changes:');
+    console.log('  - Added master_key_salt to users table');
+    console.log('  - Added conversation_keys table for encrypted key storage');
+    console.log('  - Updated conversations table with conversation_id field');
+    console.log('  - Updated messages table to use conversation_id directly');
 
   } catch (error) {
     console.error('❌ Migration failed:', error);

@@ -1,3 +1,8 @@
+/**
+ * useAuth Hook - Step 6 Simplified: Simple Session Management
+ * Clean and simple - no password prompts
+ */
+
 import { useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
@@ -54,7 +59,6 @@ export const useAuth = () => {
   return {
     user: authStore.user,
     token: authStore.token,
-    keyPair: authStore.keyPair,
     isAuthenticated: authStore.isAuthenticated,
     isLoading: authStore.isLoading,
     error: authStore.error,
@@ -62,7 +66,6 @@ export const useAuth = () => {
     register: registerWithCredentials,
     logout: logoutUser,
     verifyToken: authStore.verifyToken,
-    clearError: authStore.clearError,
-    generateNewKeyPair: authStore.generateNewKeyPair
+    clearError: authStore.clearError
   };
 };

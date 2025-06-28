@@ -5,26 +5,77 @@ const { messageValidation, validateRequest } = require('../utils/validation');
 const { apiRateLimit, messageRateLimit } = require('../middleware/rateLimiting');
 const { authenticateToken } = require('../middleware/auth');
 
-// Send a new message
+/**
+ * Get messages for a conversation - Step 3 addition
+ */
+router.get('/conversation/:conversationId',
+  authenticateToken,
+  apiRateLimit,
+  async (req, res) => {
+    try {
+      const { conversationId } = req.params;
+      const { limit = 50, offset = 0 } = req.query;
+
+      const messages = await MessageService.getConversationMessages(
+        conversationId,
+        req.user.id,
+        parseInt(limit),
+        parseInt(offset)
+      );
+
+      res.json({
+        success: true,
+        data: {
+          messages,
+          conversationId
+        }
+      });
+    } catch (error) {
+      console.error('Get conversation messages error:', error);
+
+      if (error.message === 'Access denied to this conversation') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied to this conversation'
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get conversation messages'
+      });
+    }
+  }
+);
+
+/**
+ * Send a new message - Step 3 updated
+ */
 router.post('/',
   authenticateToken,
   messageRateLimit,
   validateRequest(messageValidation.send),
   async (req, res) => {
     try {
-      const { recipientId, encryptedContent, iv, messageType } = req.body;
+      const { conversationId, encryptedContent, iv, messageType } = req.body;
 
-      // Can't send message to yourself
-      if (recipientId === req.user.id) {
-        return res.status(400).json({
+      // Validate conversation access
+      const ConversationKeyService = require('../services/conversationKeyService');
+      const hasAccess = await ConversationKeyService.hasConversationAccess(
+        conversationId,
+        req.user.id
+      );
+
+      if (!hasAccess) {
+        return res.status(403).json({
           success: false,
-          message: 'Cannot send message to yourself'
+          message: 'Access denied to this conversation'
         });
       }
 
       const message = await MessageService.sendMessage(
+        conversationId,
         req.user.id,
-        recipientId,
         encryptedContent,
         iv,
         messageType
@@ -38,7 +89,6 @@ router.post('/',
             id: message.id,
             conversationId: message.conversationId,
             senderId: message.senderId,
-            recipientId: message.recipientId,
             encryptedContent: message.encryptedContent,
             iv: message.iv,
             messageType: message.messageType,

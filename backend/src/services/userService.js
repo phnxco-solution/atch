@@ -2,8 +2,19 @@ const db = require('../database/connection');
 const AuthUtils = require('../utils/auth');
 
 class UserService {
+  /**
+   * Create new user with Step 3 encryption support
+   */
   static async createUser(userData) {
-    const { username, email, password, publicKey } = userData;
+    const { username, email, password, publicKey, masterKeySalt } = userData;
+
+    // Validate required encryption fields
+    if (!publicKey) {
+      throw new Error('Public key is required');
+    }
+    if (!masterKeySalt) {
+      throw new Error('Master key salt is required');
+    }
 
     // Check if user already exists
     const existingUser = await db.query(
@@ -18,24 +29,30 @@ class UserService {
     // Hash password
     const passwordHash = await AuthUtils.hashPassword(password);
 
-    // Insert new user
+    // Insert new user with encryption fields
     const result = await db.query(
-      'INSERT INTO users (username, email, password_hash, public_key) VALUES (?, ?, ?, ?)',
-      [username, email, passwordHash, publicKey]
+      'INSERT INTO users (username, email, password_hash, master_key_salt, public_key) VALUES (?, ?, ?, ?, ?)',
+      [username, email, passwordHash, masterKeySalt, publicKey]
     );
+
+    console.log(`✅ User created with encryption support: ${username}`);
 
     return {
       id: result.insertId,
       username,
       email,
-      publicKey
+      publicKey,
+      masterKeySalt
     };
   }
 
+  /**
+   * Authenticate user and return encryption data
+   */
   static async authenticateUser(username, password) {
-    // Get user by username
+    // Get user by username with encryption fields
     const users = await db.query(
-      'SELECT id, username, email, password_hash, public_key FROM users WHERE username = ?',
+      'SELECT id, username, email, password_hash, master_key_salt, public_key FROM users WHERE username = ?',
       [username]
     );
 
@@ -56,13 +73,17 @@ class UserService {
       id: user.id,
       username: user.username,
       email: user.email,
-      publicKey: user.public_key
+      publicKey: user.public_key,
+      masterKeySalt: user.master_key_salt
     };
   }
 
+  /**
+   * Get user by ID with encryption data
+   */
   static async getUserById(userId) {
     const users = await db.query(
-      'SELECT id, username, email, public_key, created_at FROM users WHERE id = ?',
+      'SELECT id, username, email, master_key_salt, public_key, created_at FROM users WHERE id = ?',
       [userId]
     );
 
@@ -75,10 +96,14 @@ class UserService {
       username: users[0].username,
       email: users[0].email,
       publicKey: users[0].public_key,
+      masterKeySalt: users[0].master_key_salt,
       createdAt: users[0].created_at
     };
   }
 
+  /**
+   * Get user by username with public encryption data only
+   */
   static async getUserByUsername(username) {
     const users = await db.query(
       'SELECT id, username, email, public_key, created_at FROM users WHERE username = ?',
@@ -98,9 +123,12 @@ class UserService {
     };
   }
 
+  /**
+   * Search users (public data only)
+   */
   static async searchUsers(query, currentUserId, limit = 10) {
     const users = await db.query(
-      `SELECT id, username, email FROM users 
+      `SELECT id, username, email, public_key FROM users 
        WHERE (username LIKE ? OR email LIKE ?) 
        AND id != ? 
        LIMIT ?`,
@@ -110,12 +138,16 @@ class UserService {
     return users.map(user => ({
       id: user.id,
       username: user.username,
-      email: user.email
+      email: user.email,
+      publicKey: user.public_key
     }));
   }
 
+  /**
+   * Update user (limited fields for security)
+   */
   static async updateUser(userId, updateData) {
-    const allowedFields = ['email', 'public_key'];
+    const allowedFields = ['email'];
     const updates = [];
     const values = [];
 
@@ -138,6 +170,43 @@ class UserService {
     );
 
     return await this.getUserById(userId);
+  }
+
+  /**
+   * Get user's master key salt (for key derivation)
+   */
+  static async getUserMasterKeySalt(userId) {
+    const users = await db.query(
+      'SELECT master_key_salt FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      throw new Error('User not found');
+    }
+
+    return users[0].master_key_salt;
+  }
+
+  /**
+   * Get multiple users' public keys (for conversation setup)
+   */
+  static async getUsersPublicKeys(userIds) {
+    if (!userIds || userIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = userIds.map(() => '?').join(',');
+    const users = await db.query(
+      `SELECT id, username, public_key FROM users WHERE id IN (${placeholders})`,
+      userIds
+    );
+
+    return users.map(user => ({
+      id: user.id,
+      username: user.username,
+      publicKey: user.public_key
+    }));
   }
 }
 

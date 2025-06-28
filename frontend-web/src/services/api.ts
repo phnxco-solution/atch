@@ -1,5 +1,62 @@
+/**
+ * API Service - Step 4 Updated
+ * Handles communication with encrypted backend
+ */
+
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import type { User, Message, Conversation, AuthResponse, ApiResponse } from '@shared/types';
+
+// Step 4: Updated types for encryption support
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  publicKey: string;
+  masterKeySalt?: string; // Only included for current user
+  createdAt?: string;
+}
+
+interface AuthResponse {
+  user: User;
+  token: string;
+}
+
+interface ApiResponse<T = any> {
+  success: boolean;
+  message?: string;
+  data?: T;
+}
+
+interface Message {
+  id: number;
+  conversationId: string;
+  senderId: number;
+  senderUsername: string;
+  senderPublicKey: string;
+  encryptedContent: string;
+  iv: string;
+  messageType: 'text';
+  createdAt: string;
+}
+
+interface ConversationKey {
+  keyId: string;
+  encryptedAesKey: string;
+  iv: string;
+  createdAt: string;
+}
+
+interface ConversationParticipant {
+  userId: number;
+  username: string;
+  publicKey: string;
+}
+
+interface ConversationInfo {
+  conversationId: string;
+  messageCount: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+}
 
 class ApiService {
   private api: AxiosInstance;
@@ -60,12 +117,14 @@ class ApiService {
     localStorage.removeItem('auth_token');
   }
 
-  // Auth endpoints
+  // ===== AUTH ENDPOINTS - Step 4 Updated =====
+
   async register(userData: {
     username: string;
     email: string;
     password: string;
     publicKey: string;
+    masterKeySalt: string;
   }): Promise<AuthResponse> {
     const response = await this.api.post<ApiResponse<AuthResponse>>('/api/auth/register', userData);
     
@@ -127,17 +186,6 @@ class ApiService {
     throw new Error(response.data.message || 'Search failed');
   }
 
-  async updateUserPublicKey(publicKey: string): Promise<void> {
-    const response = await this.api.put<ApiResponse>(
-      '/api/auth/public-key',
-      { publicKey }
-    );
-    
-    if (!response.data.success) {
-      throw new Error(response.data.message || 'Failed to update public key');
-    }
-  }
-
   async getUserByUsername(username: string): Promise<User> {
     const response = await this.api.get<ApiResponse<{ user: User }>>(
       `/api/auth/username/${encodeURIComponent(username)}`
@@ -150,10 +198,53 @@ class ApiService {
     throw new Error(response.data.message || 'User not found');
   }
 
-  // Conversation endpoints
-  async getConversations(): Promise<Conversation[]> {
-    const response = await this.api.get<ApiResponse<{ conversations: Conversation[] }>>(
-      '/api/conversations'
+  // ===== CONVERSATION KEY ENDPOINTS - Step 4 New =====
+
+  async storeConversationKey(
+    conversationId: string,
+    keyId: string,
+    encryptedAesKey: string,
+    iv: string
+  ): Promise<void> {
+    const response = await this.api.post<ApiResponse>('/api/conversation-keys/store', {
+      conversationId,
+      keyId,
+      encryptedAesKey,
+      iv
+    });
+    
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Failed to store conversation key');
+    }
+  }
+
+  async getConversationKey(conversationId: string): Promise<ConversationKey> {
+    const response = await this.api.get<ApiResponse<{ conversationKey: ConversationKey }>>(
+      `/api/conversation-keys/${conversationId}`
+    );
+    
+    if (response.data.success && response.data.data) {
+      return response.data.data.conversationKey;
+    }
+    
+    throw new Error(response.data.message || 'Failed to get conversation key');
+  }
+
+  async getConversationParticipants(conversationId: string): Promise<ConversationParticipant[]> {
+    const response = await this.api.get<ApiResponse<{ participants: ConversationParticipant[] }>>(
+      `/api/conversation-keys/${conversationId}/participants`
+    );
+    
+    if (response.data.success && response.data.data) {
+      return response.data.data.participants;
+    }
+    
+    throw new Error(response.data.message || 'Failed to get conversation participants');
+  }
+
+  async getUserConversations(): Promise<ConversationInfo[]> {
+    const response = await this.api.get<ApiResponse<{ conversations: ConversationInfo[] }>>(
+      '/api/conversation-keys/conversations/list'
     );
     
     if (response.data.success && response.data.data) {
@@ -163,66 +254,38 @@ class ApiService {
     throw new Error(response.data.message || 'Failed to get conversations');
   }
 
-  async createConversation(participantId: number): Promise<Conversation> {
-    const response = await this.api.post<ApiResponse<{ conversation: Conversation }>>(
-      '/api/conversations',
-      { participantId }
-    );
-    
-    if (response.data.success && response.data.data) {
-      return response.data.data.conversation;
-    }
-    
-    throw new Error(response.data.message || 'Failed to create conversation');
-  }
-
-  async getConversationDetails(conversationId: number): Promise<Conversation> {
-    const response = await this.api.get<ApiResponse<{ conversation: Conversation }>>(
-      `/api/conversations/${conversationId}`
-    );
-    
-    if (response.data.success && response.data.data) {
-      return response.data.data.conversation;
-    }
-    
-    throw new Error(response.data.message || 'Failed to get conversation');
-  }
-
-  async getConversationMessages(
-    conversationId: number,
-    limit: number = 50,
-    offset: number = 0
-  ): Promise<{ messages: Message[]; hasMore: boolean }> {
-    const response = await this.api.get<ApiResponse<{
-      messages: Message[];
-      pagination: { limit: number; offset: number; hasMore: boolean };
-    }>>(
-      `/api/conversations/${conversationId}/messages?limit=${limit}&offset=${offset}`
-    );
-    
-    if (response.data.success && response.data.data) {
-      return {
-        messages: response.data.data.messages,
-        hasMore: response.data.data.pagination.hasMore
-      };
-    }
-    
-    throw new Error(response.data.message || 'Failed to get messages');
-  }
-
-  async markConversationAsRead(conversationId: number): Promise<void> {
-    const response = await this.api.post<ApiResponse>(
-      `/api/conversations/${conversationId}/read`
-    );
+  async setupConversation(
+    conversationId: string,
+    participantUserIds: number[],
+    conversationKeys: Record<number, { keyId: string; encryptedAesKey: string; iv: string }>
+  ): Promise<void> {
+    const response = await this.api.post<ApiResponse>('/api/conversation-keys/setup', {
+      conversationId,
+      participantUserIds,
+      conversationKeys
+    });
     
     if (!response.data.success) {
-      throw new Error(response.data.message || 'Failed to mark as read');
+      throw new Error(response.data.message || 'Failed to setup conversation');
     }
   }
 
-  // Message endpoints
+  async checkConversationAccess(conversationId: string): Promise<boolean> {
+    const response = await this.api.get<ApiResponse<{ hasAccess: boolean }>>(
+      `/api/conversation-keys/${conversationId}/access`
+    );
+    
+    if (response.data.success && response.data.data) {
+      return response.data.data.hasAccess;
+    }
+    
+    return false;
+  }
+
+  // ===== MESSAGE ENDPOINTS - Step 4 Updated =====
+
   async sendMessage(messageData: {
-    recipientId: number;
+    conversationId: string;
     encryptedContent: string;
     iv: string;
     messageType?: 'text';
@@ -249,6 +312,25 @@ class ApiService {
     }
     
     throw new Error(response.data.message || 'Failed to get message');
+  }
+
+  async getConversationMessages(
+    conversationId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<Message[]> {
+    // For now, we'll use a direct endpoint for messages by conversation
+    // This might need to be added to the backend if not already there
+    const response = await this.api.get<ApiResponse<{ messages: Message[] }>>(
+      `/api/messages/conversation/${conversationId}?limit=${limit}&offset=${offset}`
+    );
+    
+    if (response.data.success && response.data.data) {
+      return response.data.data.messages;
+    }
+    
+    // Fallback: get conversation participants and filter messages
+    throw new Error(response.data.message || 'Failed to get conversation messages');
   }
 
   async deleteMessage(messageId: number): Promise<void> {
@@ -285,7 +367,48 @@ class ApiService {
     throw new Error(response.data.message || 'Failed to get unread count');
   }
 
-  // Utility methods
+  // ===== TEST ENDPOINTS - Step 4 =====
+
+  async testHealthCheck(): Promise<any> {
+    const response = await this.api.get<ApiResponse>('/api/test/health');
+    
+    if (response.data.success) {
+      return response.data;
+    }
+    
+    throw new Error(response.data.message || 'Health check failed');
+  }
+
+  async testConversationSetup(
+    conversationId: string,
+    testMessage: { encryptedContent: string; iv: string },
+    encryptedKeys: Record<number, { keyId: string; encryptedAesKey: string; iv: string }>
+  ): Promise<any> {
+    const response = await this.api.post<ApiResponse>('/api/test/setup-conversation', {
+      conversationId,
+      testMessage,
+      encryptedKeys
+    });
+    
+    if (response.data.success) {
+      return response.data;
+    }
+    
+    throw new Error(response.data.message || 'Test conversation setup failed');
+  }
+
+  async getTestStats(): Promise<any> {
+    const response = await this.api.get<ApiResponse>('/api/test/stats');
+    
+    if (response.data.success) {
+      return response.data;
+    }
+    
+    throw new Error(response.data.message || 'Failed to get test stats');
+  }
+
+  // ===== UTILITY METHODS =====
+
   isAuthenticated(): boolean {
     return !!this.getStoredToken();
   }
@@ -294,7 +417,6 @@ class ApiService {
     return this.getStoredToken();
   }
 
-  // Health check
   async healthCheck(): Promise<boolean> {
     try {
       const response = await this.api.get('/health');
@@ -309,5 +431,6 @@ class ApiService {
 const apiService = new ApiService();
 export default apiService;
 
-// Also export the class for testing or multiple instances
+// Also export the class and types
 export { ApiService };
+export type { User, AuthResponse, Message, ConversationKey, ConversationParticipant, ConversationInfo };
