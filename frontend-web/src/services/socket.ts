@@ -11,6 +11,7 @@ class SocketService {
   private socket: Socket | null = null;
   private baseURL: string;
   private isAuthenticated = false;
+  private eventListenersSetup = false;
 
   constructor() {
     this.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -32,6 +33,7 @@ class SocketService {
       this.socket.on('connect', () => {
         console.log('🔌 Connected to socket server');
         this.isAuthenticated = true;
+        this.setupEventListeners();
         resolve();
       });
 
@@ -44,7 +46,77 @@ class SocketService {
       this.socket.on('disconnect', (reason) => {
         console.log('🔌 Disconnected from socket server:', reason);
         this.isAuthenticated = false;
+        this.eventListenersSetup = false;
       });
+    });
+  }
+
+  private setupEventListeners(): void {
+    if (this.eventListenersSetup || !this.socket) return;
+    
+    console.log('🎧 Setting up socket event listeners');
+    
+    // Import chat store dynamically to avoid circular dependency
+    import('@/store/chatStore').then(({ useChatStore }) => {
+      this.socket!.on('new_message', (message: any) => {
+        console.log('🔔 New message received via socket:', message);
+        useChatStore.getState().addMessage(message);
+      });
+
+      this.socket!.on('message_sent', (message: any) => {
+        console.log('✅ Message sent confirmation via socket:', message);
+        const state = useChatStore.getState();
+        const conversationMessages = state.messages[message.conversationId] || [];
+        
+        const existingMessage = conversationMessages.find(m => m.id === message.id);
+        if (!existingMessage) {
+          useChatStore.setState({
+            messages: {
+              ...state.messages,
+              [message.conversationId]: [...conversationMessages, message]
+            },
+            isSendingMessage: false
+          });
+        } else {
+          useChatStore.setState({ isSendingMessage: false });
+        }
+      });
+
+      this.socket!.on('message_error', (error: { message: string }) => {
+        console.error('❌ Message error via socket:', error.message);
+        useChatStore.setState({ 
+          error: error.message,
+          isSendingMessage: false 
+        });
+      });
+
+      this.socket!.on('user_typing', (data: {
+        conversationId: string;
+        userId: number;
+        username: string;
+        isTyping: boolean;
+      }) => {
+        console.log('⌨️ User typing event:', data);
+        const state = useChatStore.getState();
+        const conversationId = parseInt(data.conversationId);
+        const currentTypingUsers = state.typingUsers[conversationId] || new Set();
+        
+        if (data.isTyping) {
+          currentTypingUsers.add(data.userId);
+        } else {
+          currentTypingUsers.delete(data.userId);
+        }
+        
+        useChatStore.setState({
+          typingUsers: {
+            ...state.typingUsers,
+            [conversationId]: new Set(currentTypingUsers)
+          }
+        });
+      });
+
+      this.eventListenersSetup = true;
+      console.log('✅ Socket event listeners setup complete');
     });
   }
 
@@ -53,6 +125,7 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.isAuthenticated = false;
+      this.eventListenersSetup = false;
       console.log('🔌 Disconnected from socket server');
     }
   }
@@ -108,7 +181,7 @@ class SocketService {
     this.socket.emit('typing_stop', { conversationId });
   }
 
-  // Event listeners for real-time updates
+  // Legacy event listener methods (kept for compatibility)
   onNewMessage(handler: (message: any) => void): void {
     this.socket?.on('new_message', handler);
   }
