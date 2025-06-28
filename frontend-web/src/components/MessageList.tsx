@@ -2,26 +2,46 @@ import React, { useRef, useEffect } from 'react';
 import { format, isToday, isYesterday } from 'date-fns';
 import type { Message, Conversation } from '@shared/types';
 import { useAuth } from '@/hooks/useAuth';
+import { useTyping } from '@/hooks/useTyping';
+import { useChatStore } from '@/store/chatStore';
 
 interface MessageListProps {
   messages: Message[];
   conversation: Conversation;
 }
 
+const TypingIndicator: React.FC = () => (
+  <div className="flex justify-start">
+    <div className="max-w-xs lg:max-w-md">
+      <div className="message-bubble received">
+        <div className="flex items-center space-x-1">
+          <div className="flex space-x-1">
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+          </div>
+          <span className="text-xs text-gray-500 ml-2">typing...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 const MessageList: React.FC<MessageListProps> = ({ messages, conversation }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+  const { isOthersTyping } = useTyping(conversation.id);
+  const { decryptMessage } = useChatStore();
 
   useEffect(() => {
-    // Scroll to bottom when messages change
+    // Scroll to bottom when messages change or when typing status changes
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length]);
+  }, [messages.length, isOthersTyping]);
 
   const getDecryptedContent = (message: Message): string => {
-    // For now, just return the plain text content since we're not using encryption
-    return message.encryptedContent || 'Empty message';
+    return decryptMessage(message) || '[Failed to decrypt]';
   };
 
   const formatMessageTime = (timestamp: string): string => {
@@ -126,6 +146,9 @@ const MessageList: React.FC<MessageListProps> = ({ messages, conversation }) => 
           </div>
         );
       })}
+
+      {/* Typing Indicator */}
+      {isOthersTyping && <TypingIndicator />}
     </div>
   );
 };

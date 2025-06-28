@@ -65,19 +65,14 @@ export class EncryptionService {
    */
   static async deriveMasterKey(password: string, salt?: string): Promise<MasterKeyDerivation> {
     try {
-      // Validate input
       if (!password || password.length < 1) {
         throw new Error('Password cannot be empty');
       }
 
-      // Generate salt if not provided
       const actualSalt = salt || CryptoJS.lib.WordArray.random(32).toString();
       
-      console.log('🔑 Deriving master key from password...');
-      
-      // Derive master key using PBKDF2 with current best practices
       const masterKey = CryptoJS.PBKDF2(password, actualSalt, {
-        keySize: CONFIG.keySize / 32, // Convert bits to words
+        keySize: CONFIG.keySize / 32,
         iterations: CONFIG.iterations,
         hasher: CryptoJS.algo.SHA256
       });
@@ -87,11 +82,9 @@ export class EncryptionService {
         salt: actualSalt
       };
 
-      console.log('✅ Master key derived successfully');
       return result;
       
     } catch (error) {
-      console.error('❌ Master key derivation failed:', error);
       throw new Error(`Master key derivation failed: ${error.message}`);
     }
   }
@@ -102,7 +95,6 @@ export class EncryptionService {
    */
   static encryptData(plaintext: string, key: string): EncryptedData {
     try {
-      // Validate inputs
       if (!plaintext) {
         throw new Error('Plaintext cannot be empty');
       }
@@ -110,12 +102,8 @@ export class EncryptionService {
         throw new Error('Encryption key cannot be empty');
       }
 
-      console.log('🔐 Encrypting data...');
-
-      // Generate random IV for this encryption
       const iv = CryptoJS.lib.WordArray.random(CONFIG.ivSize);
       
-      // Encrypt using AES-256-CBC
       const encrypted = CryptoJS.AES.encrypt(plaintext, key, {
         iv: iv,
         mode: CryptoJS.mode.CBC,
@@ -127,11 +115,9 @@ export class EncryptionService {
         iv: iv.toString()
       };
 
-      console.log('✅ Data encrypted successfully');
       return result;
       
     } catch (error) {
-      console.error('❌ Encryption failed:', error);
       throw new Error(`Encryption failed: ${error.message}`);
     }
   }
@@ -142,7 +128,6 @@ export class EncryptionService {
    */
   static decryptData(encryptedData: EncryptedData, key: string): string {
     try {
-      // Validate inputs
       if (!encryptedData?.encryptedContent || !encryptedData?.iv) {
         throw new Error('Invalid encrypted data');
       }
@@ -150,30 +135,23 @@ export class EncryptionService {
         throw new Error('Decryption key cannot be empty');
       }
 
-      console.log('🔓 Decrypting data...');
-
-      // Parse IV from hex string
       const iv = CryptoJS.enc.Hex.parse(encryptedData.iv);
       
-      // Decrypt using AES-256-CBC
       const decrypted = CryptoJS.AES.decrypt(encryptedData.encryptedContent, key, {
         iv: iv,
         mode: CryptoJS.mode.CBC,
         padding: CryptoJS.pad.Pkcs7
       });
 
-      // Convert to UTF-8 string
       const plaintext = decrypted.toString(CryptoJS.enc.Utf8);
       
       if (!plaintext) {
         throw new Error('Decryption resulted in empty string - invalid key or corrupted data');
       }
 
-      console.log('✅ Data decrypted successfully');
       return plaintext;
       
     } catch (error) {
-      console.error('❌ Decryption failed:', error);
       throw new Error(`Decryption failed: ${error.message}`);
     }
   }

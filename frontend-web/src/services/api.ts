@@ -237,6 +237,22 @@ class ApiService {
     throw new Error(response.data.message || 'Failed to get messages');
   }
 
+  async getConversationDetails(conversationId: number): Promise<{ conversationId: string; participants: User[] }> {
+    const response = await this.api.get<ApiResponse<{ conversation: any }>>(
+      `/api/conversations/${conversationId}`
+    );
+    
+    if (response.data.success && response.data.data) {
+      // For now, return a simple structure - we'll need the backend to provide the UUID
+      return {
+        conversationId: `conv_${conversationId}`, // Temporary - should come from backend
+        participants: []
+      };
+    }
+    
+    throw new Error(response.data.message || 'Failed to get conversation details');
+  }
+
   // ===== CONVERSATION KEY ENDPOINTS - Step 4 New =====
 
   async storeConversationKey(
