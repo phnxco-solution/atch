@@ -81,10 +81,11 @@ class SocketService {
     this.socket.emit('leave_conversation', { conversationId });
   }
 
-  // Simple message sending
+  // Send message with backend expected format
   sendMessage(messageData: {
-    conversationId: string;
-    content: string;
+    recipientId: number;
+    encryptedContent: string;
+    iv: string;
     messageType?: 'text';
   }): void {
     if (!this.socket?.connected) {

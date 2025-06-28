@@ -162,26 +162,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       
       console.log(`📤 Sending message to conversation: ${currentConversationId}`);
       
-      // Send the message through the API
-      const newMessage = await apiService.sendMessage({
-        conversationId: currentConversationId,
-        content: content.trim(),
-        messageType: 'text'
-      });
-
-      // Add to local state
-      const { messages } = get();
-      const conversationMessages = messages[currentConversationId] || [];
+      // Send via socket for real-time delivery (using plain text as encrypted content for now)
+      const socketData = {
+        recipientId: currentConversation.otherUser.id,
+        encryptedContent: content.trim(),
+        iv: 'dummy-iv', // Will be replaced with real encryption later
+        messageType: 'text' as const
+      };
       
-      set({
-        messages: {
-          ...messages,
-          [currentConversationId]: [...conversationMessages, newMessage]
-        },
-        isSendingMessage: false
-      });
-
-      console.log('✅ Message sent successfully');
+      socketService.sendMessage(socketData);
+      
+      // Note: We let the socket handle everything now. The backend will:
+      // 1. Save the message to database
+      // 2. Send confirmation back to sender via 'message_sent'
+      // 3. Send message to recipient via 'new_message'
       
     } catch (error) {
       console.error('❌ Failed to send message:', error);
@@ -302,5 +296,32 @@ socketService.onMessageError((error: { message: string }) => {
   useChatStore.setState({ 
     error: error.message,
     isSendingMessage: false 
+  });
+});
+
+// Handle typing indicators
+socketService.onUserTyping((data: {
+  conversationId: string;
+  userId: number;
+  username: string;
+  isTyping: boolean;
+}) => {
+  console.log('⌨️ User typing event:', data);
+  
+  const state = useChatStore.getState();
+  const conversationId = parseInt(data.conversationId);
+  const currentTypingUsers = state.typingUsers[conversationId] || new Set();
+  
+  if (data.isTyping) {
+    currentTypingUsers.add(data.userId);
+  } else {
+    currentTypingUsers.delete(data.userId);
+  }
+  
+  useChatStore.setState({
+    typingUsers: {
+      ...state.typingUsers,
+      [conversationId]: new Set(currentTypingUsers)
+    }
   });
 });

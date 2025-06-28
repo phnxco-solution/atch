@@ -154,10 +154,29 @@ class SocketHandler {
         return;
       }
 
-      // Send the message
-      const message = await MessageService.sendMessage(
+      // Find the conversation between sender and recipient
+      const conversationIntId = await ConversationService.findOrCreateConversation(
         socket.user.id,
-        recipientId,
+        recipientId
+      );
+
+      // Get the conversation details to get the UUID
+      const conversationResult = await db.query(
+        'SELECT conversation_id FROM conversations WHERE id = ?',
+        [conversationIntId]
+      );
+
+      if (conversationResult.length === 0) {
+        socket.emit('message_error', { message: 'Conversation not found' });
+        return;
+      }
+
+      const conversationUuid = conversationResult[0].conversation_id;
+
+      // Send the message using the conversation UUID
+      const message = await MessageService.sendMessage(
+        conversationUuid,
+        socket.user.id,
         encryptedContent,
         iv,
         messageType
@@ -166,7 +185,7 @@ class SocketHandler {
       // Prepare message data for broadcasting
       const messageData = {
         id: message.id,
-        conversationId: message.conversationId,
+        conversationId: conversationIntId, // Use the integer ID for frontend
         senderId: socket.user.id,
         senderUsername: socket.user.username,
         recipientId: recipientId,
@@ -180,7 +199,7 @@ class SocketHandler {
       socket.emit('message_sent', messageData);
 
       // Send message to conversation room
-      const roomName = `conversation_${message.conversationId}`;
+      const roomName = `conversation_${conversationIntId}`;
       socket.to(roomName).emit('new_message', messageData);
 
       // Also send directly to recipient if they're online but not in the room

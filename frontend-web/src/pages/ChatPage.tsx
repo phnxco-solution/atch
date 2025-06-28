@@ -6,6 +6,7 @@
 import React, { useEffect } from 'react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuth } from '@/hooks/useAuth';
+import { useSocket } from '@/hooks/useSocket';
 import ConversationList from '@/components/ConversationList';
 import ChatWindow from '@/components/ChatWindow';
 import UserHeader from '@/components/UserHeader';
@@ -13,6 +14,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
+  const { isConnected } = useSocket();
   const { 
     currentConversation,
     conversations,
@@ -77,6 +79,22 @@ const ChatPage: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* WebSocket Connection Status */}
+      <div className="fixed top-4 right-4 z-50">
+        <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+          isConnected 
+            ? 'bg-green-100 text-green-800' 
+            : 'bg-red-100 text-red-800'
+        }`}>
+          <div className="flex items-center space-x-1">
+            <div className={`w-2 h-2 rounded-full ${
+              isConnected ? 'bg-green-500' : 'bg-red-500'
+            }`}></div>
+            <span>{isConnected ? 'Real-time' : 'Offline'}</span>
+          </div>
+        </div>
       </div>
 
       {/* Error display */}

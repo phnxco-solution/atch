@@ -136,11 +136,17 @@ class ConversationService {
   }
 
   static async verifyUserInConversation(conversationId, userId) {
-    const conversations = await db.query(
-      'SELECT id FROM conversations WHERE id = ? AND (user1_id = ? OR user2_id = ?)',
-      [conversationId, userId, userId]
-    );
-
+    // Check if conversationId is a UUID (string) or integer ID
+    let query;
+    if (typeof conversationId === 'string' && conversationId.includes('-')) {
+      // It's a UUID, query by conversation_id field
+      query = 'SELECT id FROM conversations WHERE conversation_id = ? AND (user1_id = ? OR user2_id = ?)';
+    } else {
+      // It's an integer ID, query by id field
+      query = 'SELECT id FROM conversations WHERE id = ? AND (user1_id = ? OR user2_id = ?)';
+    }
+    
+    const conversations = await db.query(query, [conversationId, userId, userId]);
     return conversations.length > 0;
   }
 
