@@ -54,13 +54,13 @@ export const useTyping = (conversationId: number | null) => {
   }, [conversationId]);
   
   // Get typing users for current conversation
-  const typingUserIds = conversationId ? typingUsers[conversationId] : new Set();
-  const isOthersTyping = typingUserIds && typingUserIds.size > 0;
+  const conversationTypingUsers = conversationId && typingUsers ? typingUsers[conversationId] : undefined;
+  const isOthersTyping = conversationTypingUsers && conversationTypingUsers.size > 0;
   
   return {
     startTyping,
     stopTyping,
-    isOthersTyping,
-    typingUserIds: Array.from(typingUserIds || [])
+    isOthersTyping: !!isOthersTyping,
+    typingUserIds: conversationTypingUsers ? Array.from(conversationTypingUsers) : []
   };
 };

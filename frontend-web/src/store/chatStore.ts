@@ -4,33 +4,16 @@
  */
 
 import { create } from 'zustand';
-import apiService, { User } from '@/services/api';
+import apiService from '@/services/api';
 import socketService from '@/services/socket';
-
-// Simplified types for now
-interface SimpleMessage {
-  id: number;
-  conversationId: string;
-  senderId: number;
-  senderUsername: string;
-  content: string; // Plain text for now
-  messageType: 'text';
-  createdAt: string;
-}
-
-interface SimpleConversation {
-  id: string;
-  participantUsername: string;
-  participantId: number;
-  lastMessage?: string;
-  lastMessageAt?: string;
-  messageCount: number;
-}
+import type { User, Conversation, Message } from '@shared/types';
 
 interface ChatState {
-  conversations: SimpleConversation[];
-  currentConversationId: string | null;
-  messages: Record<string, SimpleMessage[]>; // conversationId -> messages
+  conversations: Conversation[];
+  currentConversationId: number | null;
+  currentConversation: Conversation | null;
+  messages: Record<number, Message[]>; // conversationId -> messages
+  typingUsers: Record<number, Set<number>>; // conversationId -> Set of user IDs
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
   isSendingMessage: boolean;
@@ -38,18 +21,21 @@ interface ChatState {
   
   // Actions
   loadConversations: () => Promise<void>;
-  selectConversation: (conversationId: string) => Promise<void>;
+  selectConversation: (conversation: Conversation) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
-  startConversation: (participantUsername: string) => Promise<string>;
-  addMessage: (message: SimpleMessage) => void;
+  createConversation: (userId: number) => Promise<Conversation>;
+  addMessage: (message: Message) => void;
   clearError: () => void;
   reset: () => void;
+  decryptMessage: (message: Message, publicKey: string) => string | null;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   currentConversationId: null,
+  currentConversation: null,
   messages: {},
+  typingUsers: {},
   isLoadingConversations: false,
   isLoadingMessages: false,
   isSendingMessage: false,
@@ -61,26 +47,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       
       console.log('📂 Loading conversations...');
       
-      // For now, let's use a mock conversation list
-      // Later we'll integrate with the API
-      const conversations: SimpleConversation[] = [
-        {
-          id: 'conv_demo_1',
-          participantUsername: 'alice',
-          participantId: 2,
-          lastMessage: 'Hey there!',
-          lastMessageAt: new Date().toISOString(),
-          messageCount: 3
-        },
-        {
-          id: 'conv_demo_2',
-          participantUsername: 'bob',
-          participantId: 3,
-          lastMessage: 'How are you?',
-          lastMessageAt: new Date(Date.now() - 60000).toISOString(),
-          messageCount: 1
-        }
-      ];
+      const conversations = await apiService.getConversations();
       
       set({
         conversations,
@@ -99,61 +66,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  selectConversation: async (conversationId: string) => {
+  selectConversation: async (conversation: Conversation) => {
     try {
-      set({ currentConversationId: conversationId, isLoadingMessages: true, error: null });
+      set({ 
+        currentConversationId: conversation.id, 
+        currentConversation: conversation,
+        isLoadingMessages: true, 
+        error: null 
+      });
       
-      console.log(`📋 Selecting conversation: ${conversationId}`);
+      console.log(`📋 Selecting conversation: ${conversation.id}`);
       
       // Join the conversation room for real-time updates
-      socketService.joinConversation(conversationId);
+      socketService.joinConversation(conversation.id.toString());
       
-      // Load existing messages (mock for now)
+      // Load existing messages
       const { messages } = get();
-      if (!messages[conversationId]) {
-        // Mock some messages
-        const mockMessages: SimpleMessage[] = [
-          {
-            id: 1,
-            conversationId,
-            senderId: 2,
-            senderUsername: 'alice',
-            content: 'Hey there!',
-            messageType: 'text',
-            createdAt: new Date(Date.now() - 300000).toISOString()
-          },
-          {
-            id: 2,
-            conversationId,
-            senderId: 1,
-            senderUsername: 'you',
-            content: 'Hi! How are you?',
-            messageType: 'text',
-            createdAt: new Date(Date.now() - 120000).toISOString()
-          },
-          {
-            id: 3,
-            conversationId,
-            senderId: 2,
-            senderUsername: 'alice',
-            content: 'I\'m doing great, thanks for asking!',
-            messageType: 'text',
-            createdAt: new Date(Date.now() - 60000).toISOString()
-          }
-        ];
-
-        set({
-          messages: {
-            ...get().messages,
-            [conversationId]: mockMessages
-          },
-          isLoadingMessages: false
-        });
+      if (!messages[conversation.id]) {
+        try {
+          const conversationMessages = await apiService.getMessages(conversation.id);
+          
+          set({
+            messages: {
+              ...get().messages,
+              [conversation.id]: conversationMessages
+            },
+            isLoadingMessages: false
+          });
+        } catch (error) {
+          console.error('Failed to load messages:', error);
+          // Set empty messages array if loading fails
+          set({
+            messages: {
+              ...get().messages,
+              [conversation.id]: []
+            },
+            isLoadingMessages: false
+          });
+        }
       } else {
         set({ isLoadingMessages: false });
       }
 
-      console.log(`✅ Conversation ${conversationId} selected`);
+      console.log(`✅ Conversation ${conversation.id} selected`);
       
     } catch (error) {
       console.error('❌ Failed to select conversation:', error);
@@ -167,9 +122,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (content: string) => {
     try {
-      const { currentConversationId } = get();
+      const { currentConversationId, currentConversation } = get();
       
-      if (!currentConversationId) {
+      if (!currentConversationId || !currentConversation) {
         throw new Error('No conversation selected');
       }
 
@@ -181,18 +136,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       
       console.log(`📤 Sending message to conversation: ${currentConversationId}`);
       
-      // Create the message
-      const newMessage: SimpleMessage = {
-        id: Date.now(), // Temporary ID
+      // Send the message through the API
+      const newMessage = await apiService.sendMessage({
         conversationId: currentConversationId,
-        senderId: 1, // Current user ID (mock)
-        senderUsername: 'you',
         content: content.trim(),
-        messageType: 'text',
-        createdAt: new Date().toISOString()
-      };
+        messageType: 'text'
+      });
 
-      // Add to local state immediately (optimistic update)
+      // Add to local state
       const { messages } = get();
       const conversationMessages = messages[currentConversationId] || [];
       
@@ -202,13 +153,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           [currentConversationId]: [...conversationMessages, newMessage]
         },
         isSendingMessage: false
-      });
-
-      // Send via Socket.IO for real-time delivery
-      socketService.sendMessage({
-        conversationId: currentConversationId,
-        content: content.trim(),
-        messageType: 'text'
       });
 
       console.log('✅ Message sent successfully');
@@ -224,41 +168,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  startConversation: async (participantUsername: string) => {
+  createConversation: async (userId: number) => {
     try {
-      console.log(`💬 Starting conversation with: ${participantUsername}`);
+      console.log(`💬 Creating conversation with user: ${userId}`);
       
-      // For now, create a simple conversation ID
-      const conversationId = `conv_${participantUsername}_${Date.now()}`;
+      const conversation = await apiService.createConversation(userId);
       
       // Add to conversations list
-      const newConversation: SimpleConversation = {
-        id: conversationId,
-        participantUsername,
-        participantId: Date.now(), // Mock participant ID
-        messageCount: 0
-      };
-
       const { conversations } = get();
       set({
-        conversations: [newConversation, ...conversations]
+        conversations: [conversation, ...conversations]
       });
 
-      // Select the new conversation
-      await get().selectConversation(conversationId);
-
-      console.log(`✅ Conversation started: ${conversationId}`);
+      console.log(`✅ Conversation created: ${conversation.id}`);
       
-      return conversationId;
+      return conversation;
     } catch (error) {
-      console.error('❌ Failed to start conversation:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to start conversation';
+      console.error('❌ Failed to create conversation:', error);
+      
+      // Provide more specific error message
+      let errorMessage = 'Failed to create conversation';
+      if (error instanceof Error) {
+        if (error.message.includes('Other user not found')) {
+          errorMessage = 'User not found';
+        } else if (error.message.includes('Cannot create conversation with yourself')) {
+          errorMessage = 'Cannot create conversation with yourself';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       set({ error: errorMessage });
-      throw error;
+      throw new Error(errorMessage);
     }
   },
 
-  addMessage: (message: SimpleMessage) => {
+  addMessage: (message: Message) => {
     const { messages } = get();
     const conversationId = message.conversationId;
     const conversationMessages = messages[conversationId] || [];
@@ -283,6 +228,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     console.log(`📨 New message added to conversation: ${conversationId}`);
   },
 
+  decryptMessage: (message: Message, publicKey: string): string | null => {
+    // For now, return the content as-is since we're not using encryption yet
+    // Later this will implement actual decryption
+    return message.encryptedContent || 'Encrypted message';
+  },
+
   clearError: () => {
     set({ error: null });
   },
@@ -291,7 +242,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       conversations: [],
       currentConversationId: null,
+      currentConversation: null,
       messages: {},
+      typingUsers: {},
       isLoadingConversations: false,
       isLoadingMessages: false,
       isSendingMessage: false,
@@ -306,18 +259,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 socketService.onNewMessage((message: any) => {
   console.log('🔔 New message received via socket:', message);
   
-  // Convert to our SimpleMessage format
-  const simpleMessage: SimpleMessage = {
-    id: message.id || Date.now(),
-    conversationId: message.conversationId,
-    senderId: message.senderId,
-    senderUsername: message.senderUsername || 'Unknown',
-    content: message.content || message.encryptedContent, // Use content or fallback
-    messageType: 'text',
-    createdAt: message.createdAt || new Date().toISOString()
-  };
-  
-  useChatStore.getState().addMessage(simpleMessage);
+  // Add the message to the store
+  useChatStore.getState().addMessage(message);
 });
 
 socketService.onMessageSent((message: any) => {

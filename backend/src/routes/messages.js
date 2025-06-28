@@ -4,6 +4,7 @@ const MessageService = require('../services/messageService');
 const { messageValidation, validateRequest } = require('../utils/validation');
 const { apiRateLimit, messageRateLimit } = require('../middleware/rateLimiting');
 const { authenticateToken } = require('../middleware/auth');
+const db = require('../database/connection');
 
 /**
  * Get messages for a conversation - Step 3 addition

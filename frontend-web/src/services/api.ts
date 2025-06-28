@@ -198,6 +198,45 @@ class ApiService {
     throw new Error(response.data.message || 'User not found');
   }
 
+  // ===== CONVERSATION ENDPOINTS =====
+
+  async getConversations(): Promise<import('@shared/types').Conversation[]> {
+    const response = await this.api.get<ApiResponse<{ conversations: import('@shared/types').Conversation[] }>>(
+      '/api/conversations'
+    );
+    
+    if (response.data.success && response.data.data) {
+      return response.data.data.conversations;
+    }
+    
+    throw new Error(response.data.message || 'Failed to get conversations');
+  }
+
+  async createConversation(userId: number): Promise<import('@shared/types').Conversation> {
+    const response = await this.api.post<ApiResponse<{ conversation: import('@shared/types').Conversation }>>(
+      '/api/conversations',
+      { participantId: userId }
+    );
+    
+    if (response.data.success && response.data.data) {
+      return response.data.data.conversation;
+    }
+    
+    throw new Error(response.data.message || 'Failed to create conversation');
+  }
+
+  async getMessages(conversationId: number): Promise<import('@shared/types').Message[]> {
+    const response = await this.api.get<ApiResponse<{ messages: import('@shared/types').Message[] }>>(
+      `/api/conversations/${conversationId}/messages`
+    );
+    
+    if (response.data.success && response.data.data) {
+      return response.data.data.messages;
+    }
+    
+    throw new Error(response.data.message || 'Failed to get messages');
+  }
+
   // ===== CONVERSATION KEY ENDPOINTS - Step 4 New =====
 
   async storeConversationKey(
@@ -285,14 +324,17 @@ class ApiService {
   // ===== MESSAGE ENDPOINTS - Step 4 Updated =====
 
   async sendMessage(messageData: {
-    conversationId: string;
-    encryptedContent: string;
-    iv: string;
+    conversationId: number;
+    content: string;
     messageType?: 'text';
-  }): Promise<Message> {
-    const response = await this.api.post<ApiResponse<{ message: Message }>>(
+  }): Promise<import('@shared/types').Message> {
+    const response = await this.api.post<ApiResponse<{ message: import('@shared/types').Message }>>(
       '/api/messages',
-      messageData
+      {
+        conversationId,
+        content: messageData.content,
+        messageType: messageData.messageType || 'text'
+      }
     );
     
     if (response.data.success && response.data.data) {

@@ -1,13 +1,24 @@
 const db = require('../database/connection');
+const { v4: uuidv4 } = require('uuid');
 
 class ConversationService {
   static async findOrCreateConversation(user1Id, user2Id) {
+    // First, check if the second user exists
+    const userCheck = await db.query(
+      'SELECT id FROM users WHERE id = ?',
+      [user2Id]
+    );
+
+    if (userCheck.length === 0) {
+      throw new Error('Other user not found');
+    }
+
     // Ensure consistent ordering (smaller ID first)
     const [smallerId, largerId] = user1Id < user2Id ? [user1Id, user2Id] : [user2Id, user1Id];
 
     // Check if conversation already exists
     let conversations = await db.query(
-      'SELECT id FROM conversations WHERE user1_id = ? AND user2_id = ?',
+      'SELECT id, conversation_id FROM conversations WHERE user1_id = ? AND user2_id = ?',
       [smallerId, largerId]
     );
 
@@ -15,10 +26,13 @@ class ConversationService {
       return conversations[0].id;
     }
 
+    // Generate a unique conversation ID
+    const conversationId = uuidv4();
+
     // Create new conversation with consistent ordering
     const result = await db.query(
-      'INSERT INTO conversations (user1_id, user2_id) VALUES (?, ?)',
-      [smallerId, largerId]
+      'INSERT INTO conversations (conversation_id, user1_id, user2_id) VALUES (?, ?, ?)',
+      [conversationId, smallerId, largerId]
     );
 
     return result.insertId;

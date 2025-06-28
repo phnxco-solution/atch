@@ -14,7 +14,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
   const { 
-    currentConversationId,
+    currentConversation,
     conversations,
     isLoadingConversations, 
     loadConversations,
@@ -34,10 +34,7 @@ const ChatPage: React.FC = () => {
     );
   }
 
-  // Get current conversation details
-  const currentConversation = currentConversationId 
-    ? conversations.find(conv => conv.id === currentConversationId)
-    : null;
+  // Get current conversation details - it's already available from the store
 
   return (
     <div className="h-screen flex bg-gray-100">
@@ -73,17 +70,6 @@ const ChatPage: React.FC = () => {
               <p className="text-gray-500 max-w-sm">
                 Select a conversation to start messaging, or search for users to begin a new chat.
               </p>
-              
-              {/* Quick start button for testing */}
-              <button
-                onClick={() => {
-                  const chatStore = useChatStore.getState();
-                  chatStore.startConversation('alice');
-                }}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-              >
-                Start Demo Conversation
-              </button>
             </div>
           </div>
         )}

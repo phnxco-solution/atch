@@ -15,20 +15,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { 
     messages, 
-    isLoadingMessages, 
-    loadMessages,
+    isLoadingMessages,
     error 
   } = useChatStore();
 
   const { isOthersTyping } = useTyping(conversation.id);
   const conversationMessages = messages[conversation.id] || [];
-
-  useEffect(() => {
-    // Load messages when conversation changes
-    if (conversation.id && !messages[conversation.id]) {
-      loadMessages(conversation.id);
-    }
-  }, [conversation.id, loadMessages, messages]);
 
   useEffect(() => {
     // Auto scroll to bottom when new messages arrive
