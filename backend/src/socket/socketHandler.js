@@ -10,30 +10,21 @@ class SocketHandler {
 
   initialize() {
     this.io.on('connection', (socket) => {
-      console.log(`🔌 User ${socket.user.username} connected: ${socket.id}`);
-      
-      // Store user connection
       this.addUserSocket(socket.user.id, socket.id);
-      
-      // Store socket session in database
       this.storeSocketSession(socket.user.id, socket.id);
 
-      // Handle joining conversation rooms
       socket.on('join_conversation', (data) => {
         this.handleJoinConversation(socket, data);
       });
 
-      // Handle leaving conversation rooms
       socket.on('leave_conversation', (data) => {
         this.handleLeaveConversation(socket, data);
       });
 
-      // Handle sending messages
       socket.on('send_message', (data) => {
         this.handleSendMessage(socket, data);
       });
 
-      // Handle typing indicators
       socket.on('typing_start', (data) => {
         this.handleTypingStart(socket, data);
       });
@@ -42,12 +33,10 @@ class SocketHandler {
         this.handleTypingStop(socket, data);
       });
 
-      // Handle user going online/offline
       socket.on('user_status', (data) => {
         this.handleUserStatus(socket, data);
       });
 
-      // Handle disconnection
       socket.on('disconnect', () => {
         this.handleDisconnection(socket);
       });
@@ -81,7 +70,7 @@ class SocketHandler {
         [userId, socketId]
       );
     } catch (error) {
-      console.error('Error storing socket session:', error);
+      // Silent fail for session storage
     }
   }
 
@@ -89,7 +78,7 @@ class SocketHandler {
     try {
       await db.query('DELETE FROM user_sessions WHERE socket_id = ?', [socketId]);
     } catch (error) {
-      console.error('Error removing socket session:', error);
+      // Silent fail for session cleanup
     }
   }
 
@@ -97,7 +86,6 @@ class SocketHandler {
     try {
       const { conversationId } = data;
 
-      // Verify user has access to this conversation
       const hasAccess = await ConversationService.verifyUserInConversation(
         conversationId,
         socket.user.id
@@ -108,7 +96,6 @@ class SocketHandler {
         return;
       }
 
-      // Join the conversation room
       const roomName = `conversation_${conversationId}`;
       socket.join(roomName);
 
@@ -116,10 +103,7 @@ class SocketHandler {
         conversationId,
         message: 'Successfully joined conversation'
       });
-
-      console.log(`👥 User ${socket.user.username} joined conversation ${conversationId}`);
     } catch (error) {
-      console.error('Error joining conversation:', error);
       socket.emit('error', { message: 'Failed to join conversation' });
     }
   }
@@ -131,10 +115,8 @@ class SocketHandler {
       
       socket.leave(roomName);
       socket.emit('conversation_left', { conversationId });
-
-      console.log(`👋 User ${socket.user.username} left conversation ${conversationId}`);
     } catch (error) {
-      console.error('Error leaving conversation:', error);
+      // Silent fail for leaving conversation
     }
   }
 
@@ -142,25 +124,21 @@ class SocketHandler {
     try {
       const { recipientId, encryptedContent, iv, messageType = 'text' } = data;
 
-      // Validate required fields
       if (!recipientId || !encryptedContent || !iv) {
         socket.emit('message_error', { message: 'Missing required fields' });
         return;
       }
 
-      // Can't send message to yourself
       if (recipientId === socket.user.id) {
         socket.emit('message_error', { message: 'Cannot send message to yourself' });
         return;
       }
 
-      // Find the conversation between sender and recipient
       const conversationIntId = await ConversationService.findOrCreateConversation(
         socket.user.id,
         recipientId
       );
 
-      // Get the conversation details to get the UUID
       const conversationResult = await db.query(
         'SELECT conversation_id FROM conversations WHERE id = ?',
         [conversationIntId]
@@ -173,7 +151,6 @@ class SocketHandler {
 
       const conversationUuid = conversationResult[0].conversation_id;
 
-      // Send the message using the conversation UUID
       const message = await MessageService.sendMessage(
         conversationUuid,
         socket.user.id,
@@ -182,10 +159,9 @@ class SocketHandler {
         messageType
       );
 
-      // Prepare message data for broadcasting
       const messageData = {
         id: message.id,
-        conversationId: conversationIntId, // Use the integer ID for frontend
+        conversationId: conversationIntId,
         senderId: socket.user.id,
         senderUsername: socket.user.username,
         recipientId: recipientId,
@@ -195,14 +171,11 @@ class SocketHandler {
         createdAt: message.createdAt
       };
 
-      // Send confirmation to sender
       socket.emit('message_sent', messageData);
 
-      // Send message to conversation room
       const roomName = `conversation_${conversationIntId}`;
       socket.to(roomName).emit('new_message', messageData);
 
-      // Also send directly to recipient if they're online but not in the room
       const recipientSockets = this.getUserSockets(recipientId);
       recipientSockets.forEach(recipientSocketId => {
         const recipientSocket = this.io.sockets.sockets.get(recipientSocketId);
@@ -210,10 +183,7 @@ class SocketHandler {
           recipientSocket.emit('new_message', messageData);
         }
       });
-
-      console.log(`💬 Message sent from ${socket.user.username} to user ${recipientId}`);
     } catch (error) {
-      console.error('Error sending message:', error);
       socket.emit('message_error', { message: 'Failed to send message' });
     }
   }
@@ -222,7 +192,6 @@ class SocketHandler {
     try {
       const { conversationId } = data;
 
-      // Verify access to conversation
       const hasAccess = await ConversationService.verifyUserInConversation(
         conversationId,
         socket.user.id
@@ -240,7 +209,7 @@ class SocketHandler {
         isTyping: true
       });
     } catch (error) {
-      console.error('Error handling typing start:', error);
+      // Silent fail for typing indicators
     }
   }
 
@@ -248,7 +217,6 @@ class SocketHandler {
     try {
       const { conversationId } = data;
 
-      // Verify access to conversation
       const hasAccess = await ConversationService.verifyUserInConversation(
         conversationId,
         socket.user.id
@@ -266,36 +234,29 @@ class SocketHandler {
         isTyping: false
       });
     } catch (error) {
-      console.error('Error handling typing stop:', error);
+      // Silent fail for typing indicators
     }
   }
 
   handleUserStatus(socket, data) {
     try {
-      const { status } = data; // 'online', 'away', 'busy', etc.
+      const { status } = data;
       
-      // Broadcast status to all connected users who have conversations with this user
       socket.broadcast.emit('user_status_changed', {
         userId: socket.user.id,
         username: socket.user.username,
         status
       });
     } catch (error) {
-      console.error('Error handling user status:', error);
+      // Silent fail for user status
     }
   }
 
   async handleDisconnection(socket) {
     try {
-      console.log(`🔌 User ${socket.user.username} disconnected: ${socket.id}`);
-      
-      // Remove from user sockets map
       this.removeUserSocket(socket.user.id, socket.id);
-      
-      // Remove socket session from database
       await this.removeSocketSession(socket.id);
 
-      // Notify others that user went offline (if no other sockets)
       if (this.getUserSockets(socket.user.id).size === 0) {
         socket.broadcast.emit('user_status_changed', {
           userId: socket.user.id,
@@ -304,7 +265,7 @@ class SocketHandler {
         });
       }
     } catch (error) {
-      console.error('Error handling disconnection:', error);
+      // Silent fail for disconnection handling
     }
   }
 
@@ -330,7 +291,7 @@ class SocketHandler {
         }
       });
     } catch (error) {
-      console.error('Error broadcasting to conversation:', error);
+      // Silent fail for broadcasting
     }
   }
 }

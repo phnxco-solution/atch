@@ -31,20 +31,17 @@ class SocketService {
       });
 
       this.socket.on('connect', () => {
-        console.log('🔌 Connected to socket server');
         this.isAuthenticated = true;
         this.setupEventListeners();
         resolve();
       });
 
       this.socket.on('connect_error', (error) => {
-        console.error('❌ Socket connection error:', error);
         this.isAuthenticated = false;
         reject(error);
       });
 
       this.socket.on('disconnect', (reason) => {
-        console.log('🔌 Disconnected from socket server:', reason);
         this.isAuthenticated = false;
         this.eventListenersSetup = false;
       });
@@ -54,17 +51,13 @@ class SocketService {
   private setupEventListeners(): void {
     if (this.eventListenersSetup || !this.socket) return;
     
-    console.log('🎧 Setting up socket event listeners');
-    
     // Import chat store dynamically to avoid circular dependency
     import('@/store/chatStore').then(({ useChatStore }) => {
       this.socket!.on('new_message', (message: any) => {
-        console.log('🔔 New message received via socket:', message);
         useChatStore.getState().addMessage(message);
       });
 
       this.socket!.on('message_sent', (message: any) => {
-        console.log('✅ Message sent confirmation via socket:', message);
         const state = useChatStore.getState();
         const conversationMessages = state.messages[message.conversationId] || [];
         
@@ -83,7 +76,6 @@ class SocketService {
       });
 
       this.socket!.on('message_error', (error: { message: string }) => {
-        console.error('❌ Message error via socket:', error.message);
         useChatStore.setState({ 
           error: error.message,
           isSendingMessage: false 
@@ -96,7 +88,6 @@ class SocketService {
         username: string;
         isTyping: boolean;
       }) => {
-        console.log('⌨️ User typing event:', data);
         const state = useChatStore.getState();
         const conversationId = parseInt(data.conversationId);
         const currentTypingUsers = state.typingUsers[conversationId] || new Set();
@@ -116,7 +107,6 @@ class SocketService {
       });
 
       this.eventListenersSetup = true;
-      console.log('✅ Socket event listeners setup complete');
     });
   }
 
@@ -126,7 +116,6 @@ class SocketService {
       this.socket = null;
       this.isAuthenticated = false;
       this.eventListenersSetup = false;
-      console.log('🔌 Disconnected from socket server');
     }
   }
 
@@ -137,11 +126,9 @@ class SocketService {
   // Conversation methods
   joinConversation(conversationId: string): void {
     if (!this.socket?.connected) {
-      console.warn('Socket not connected, cannot join conversation');
       return;
     }
     
-    console.log(`🚪 Joining conversation: ${conversationId}`);
     this.socket.emit('join_conversation', { conversationId });
   }
 
@@ -150,7 +137,6 @@ class SocketService {
       return;
     }
     
-    console.log(`🚪 Leaving conversation: ${conversationId}`);
     this.socket.emit('leave_conversation', { conversationId });
   }
 
@@ -162,11 +148,9 @@ class SocketService {
     messageType?: 'text';
   }): void {
     if (!this.socket?.connected) {
-      console.warn('Socket not connected, cannot send message');
       return;
     }
     
-    console.log(`📤 Sending message via socket:`, messageData);
     this.socket.emit('send_message', messageData);
   }
 
@@ -233,7 +217,6 @@ class SocketService {
 
   emit(event: string, data?: any): void {
     if (!this.socket?.connected) {
-      console.warn(`Socket not connected, cannot emit ${event}`);
       return;
     }
     

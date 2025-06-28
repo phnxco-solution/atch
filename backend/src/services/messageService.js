@@ -13,21 +13,16 @@ class MessageService {
    */
   static async sendMessage(conversationId, senderId, encryptedContent, iv, messageType = 'text') {
     try {
-      // Verify sender has access to conversation
       const hasAccess = await ConversationService.verifyUserInConversation(conversationId, senderId);
       if (!hasAccess) {
         throw new Error('Sender does not have access to this conversation');
       }
 
-      // Insert message
       const result = await db.query(
         'INSERT INTO messages (conversation_id, sender_id, encrypted_content, iv, message_type) VALUES (?, ?, ?, ?, ?)',
         [conversationId, senderId, encryptedContent, iv, messageType]
       );
 
-      console.log(`✅ Message sent to conversation ${conversationId} by user ${senderId}`);
-
-      // Return the created message
       return {
         id: result.insertId,
         conversationId,

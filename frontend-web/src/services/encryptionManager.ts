@@ -71,8 +71,6 @@ class EncryptionManager {
         userKeyPair: sessionData.userKeyPair
       };
 
-      console.log('✅ Encryption session restored from storage');
-      
     } catch (error) {
       console.error('❌ Failed to restore session:', error);
       this.clearStoredSession();
@@ -225,7 +223,6 @@ class EncryptionManager {
     if (this.currentSession) {
       this.currentSession.user = user;
       this.updateSessionActivity();
-      console.log('✅ Session user data updated');
     }
   }
 

@@ -176,8 +176,6 @@ export const useAuthStore = create<AuthState>()(
         try {
           set({ isLoading: true, error: null });
 
-          console.log('🔍 Verifying token...');
-
           const user = await apiService.verifyToken();
           
           // Check if we have active encryption session
@@ -186,10 +184,8 @@ export const useAuthStore = create<AuthState>()(
           if (hasActiveSession) {
             // Update session with user data
             encryptionManager.updateSessionUser(user);
-            console.log('✅ Encryption session is active');
           } else {
             // No encryption session - user needs to login again
-            console.warn('⚠️ No encryption session found - user will need to login again');
             throw new Error('No encryption session - please login again');
           }
           
@@ -205,11 +201,7 @@ export const useAuthStore = create<AuthState>()(
             error: null
           });
 
-          console.log('✅ Token verification successful');
-
         } catch (error) {
-          console.error('❌ Token verification failed:', error);
-          
           // Clear everything on verification failure
           encryptionManager.logout();
           set({

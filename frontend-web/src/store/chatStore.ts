@@ -46,8 +46,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       set({ isLoadingConversations: true, error: null });
       
-      console.log('📂 Loading conversations...');
-      
       const conversations = await apiService.getConversations();
       
       set({
@@ -55,7 +53,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isLoadingConversations: false
       });
     } catch (error) {
-      console.error('❌ Failed to load conversations:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load conversations';
       set({
         isLoadingConversations: false,
@@ -74,17 +71,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const conversationId = parseInt(savedConversationId);
       const { conversations } = get();
       
-      // Find the conversation in our loaded conversations
       const conversation = conversations.find(conv => conv.id === conversationId);
       if (conversation) {
         await get().selectConversation(conversation);
-        console.log(`🔄 Restored conversation: ${conversationId}`);
       } else {
-        // Clear invalid saved conversation ID
         localStorage.removeItem('selectedConversationId');
       }
     } catch (error) {
-      console.error('❌ Failed to restore conversation:', error);
       localStorage.removeItem('selectedConversationId');
     }
   },
@@ -98,15 +91,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         error: null 
       });
       
-      // Save selected conversation to localStorage
       localStorage.setItem('selectedConversationId', conversation.id.toString());
       
-      console.log(`📋 Selecting conversation: ${conversation.id}`);
-      
-      // Join the conversation room for real-time updates
       socketService.joinConversation(conversation.id.toString());
       
-      // Load existing messages
       const { messages } = get();
       if (!messages[conversation.id]) {
         try {
@@ -120,8 +108,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
             isLoadingMessages: false
           });
         } catch (error) {
-          console.error('Failed to load messages:', error);
-          // Set empty messages array if loading fails
           set({
             messages: {
               ...get().messages,
@@ -133,11 +119,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       } else {
         set({ isLoadingMessages: false });
       }
-
-      console.log(`✅ Conversation ${conversation.id} selected`);
       
     } catch (error) {
-      console.error('❌ Failed to select conversation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to select conversation';
       set({ 
         error: errorMessage,
@@ -160,25 +143,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       set({ isSendingMessage: true, error: null });
       
-      console.log(`📤 Sending message to conversation: ${currentConversationId}`);
-      
-      // Send via socket for real-time delivery (using plain text as encrypted content for now)
       const socketData = {
         recipientId: currentConversation.otherUser.id,
         encryptedContent: content.trim(),
-        iv: 'dummy-iv', // Will be replaced with real encryption later
+        iv: 'dummy-iv',
         messageType: 'text' as const
       };
       
       socketService.sendMessage(socketData);
       
-      // Note: We let the socket handle everything now. The backend will:
-      // 1. Save the message to database
-      // 2. Send confirmation back to sender via 'message_sent'
-      // 3. Send message to recipient via 'new_message'
-      
     } catch (error) {
-      console.error('❌ Failed to send message:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
       set({
         isSendingMessage: false,
@@ -190,23 +164,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   createConversation: async (userId: number) => {
     try {
-      console.log(`💬 Creating conversation with user: ${userId}`);
-      
       const conversation = await apiService.createConversation(userId);
       
-      // Add to conversations list
       const { conversations } = get();
       set({
         conversations: [conversation, ...conversations]
       });
-
-      console.log(`✅ Conversation created: ${conversation.id}`);
       
       return conversation;
     } catch (error) {
-      console.error('❌ Failed to create conversation:', error);
-      
-      // Provide more specific error message
       let errorMessage = 'Failed to create conversation';
       if (error instanceof Error) {
         if (error.message.includes('Other user not found')) {
@@ -228,14 +194,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conversationId = message.conversationId;
     const conversationMessages = messages[conversationId] || [];
     
-    // Check if message already exists to avoid duplicates
     const existingMessage = conversationMessages.find(m => m.id === message.id);
     if (existingMessage) {
-      console.log('Message already exists, skipping:', message.id);
       return;
     }
     
-    // Add message to the end (newest)
     const updatedMessages = [...conversationMessages, message];
     
     set({
@@ -244,13 +207,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         [conversationId]: updatedMessages
       }
     });
-
-    console.log(`📨 New message added to conversation: ${conversationId}`);
   },
 
   decryptMessage: (message: Message, publicKey: string): string | null => {
-    // For now, return the content as-is since we're not using encryption yet
-    // Later this will implement actual decryption
     return message.encryptedContent || 'Encrypted message';
   },
 
@@ -259,7 +218,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   reset: () => {
-    // Clear localStorage when resetting
     localStorage.removeItem('selectedConversationId');
     
     set({
@@ -273,7 +231,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isSendingMessage: false,
       error: null
     });
-    
-    console.log('🗑️ Chat store reset');
   }
 }));
