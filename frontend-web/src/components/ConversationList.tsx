@@ -13,6 +13,10 @@ const ConversationList: React.FC = () => {
     decryptMessage 
   } = useChatStore();
 
+  // Debug logging to understand the data structure
+  console.log('ConversationList - conversations:', conversations);
+  console.log('ConversationList - conversations count:', conversations?.length || 0);
+  
   const handleSelectConversation = (conversation: Conversation) => {
     selectConversation(conversation);
   };
@@ -24,6 +28,11 @@ const ConversationList: React.FC = () => {
 
     // If we don't have an IV, we can't decrypt - show generic message
     if (!conversation.lastMessage.iv) {
+      return '🔒 Encrypted message';
+    }
+
+    // Check if we have the otherUser data needed for decryption
+    if (!conversation.otherUser?.publicKey) {
       return '🔒 Encrypted message';
     }
 
@@ -82,7 +91,9 @@ const ConversationList: React.FC = () => {
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
       <div className="divide-y divide-gray-200">
-        {conversations.map((conversation) => (
+        {conversations
+          .filter(conversation => conversation.otherUser) // Filter out conversations with undefined otherUser
+          .map((conversation) => (
           <div
             key={conversation.id}
             onClick={() => handleSelectConversation(conversation)}
@@ -97,7 +108,7 @@ const ConversationList: React.FC = () => {
               <div className="flex-shrink-0">
                 <div className="w-12 h-12 bg-primary-600 rounded-full flex items-center justify-center">
                   <span className="text-white font-semibold">
-                    {conversation.otherUser.username.charAt(0).toUpperCase()}
+                    {conversation.otherUser?.username?.charAt(0).toUpperCase() || '?'}
                   </span>
                 </div>
               </div>
@@ -106,7 +117,7 @@ const ConversationList: React.FC = () => {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900 truncate">
-                    {conversation.otherUser.username}
+                    {conversation.otherUser?.username || 'Unknown User'}
                   </h3>
                   {conversation.lastMessage && (
                     <span className="text-xs text-gray-500 flex-shrink-0">

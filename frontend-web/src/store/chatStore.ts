@@ -1,31 +1,47 @@
 /**
- * Chat Store - Step 5 Real Implementation
- * Uses conversation-based encryption system
+ * Chat Store - Step 7: Simple Real-Time Chat
+ * Basic messaging without encryption to start
  */
 
 import { create } from 'zustand';
-import encryptionManager from '@/services/encryptionManager';
-import apiService, { User, Message, ConversationInfo } from '@/services/api';
+import apiService, { User } from '@/services/api';
 import socketService from '@/services/socket';
 
+// Simplified types for now
+interface SimpleMessage {
+  id: number;
+  conversationId: string;
+  senderId: number;
+  senderUsername: string;
+  content: string; // Plain text for now
+  messageType: 'text';
+  createdAt: string;
+}
+
+interface SimpleConversation {
+  id: string;
+  participantUsername: string;
+  participantId: number;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  messageCount: number;
+}
+
 interface ChatState {
-  conversations: ConversationInfo[];
+  conversations: SimpleConversation[];
   currentConversationId: string | null;
-  messages: Record<string, Array<Message & { decryptedContent?: string }>>;
+  messages: Record<string, SimpleMessage[]>; // conversationId -> messages
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
   isSendingMessage: boolean;
   error: string | null;
-  typingUsers: Record<string, Set<number>>; // conversationId -> Set of user IDs
   
   // Actions
   loadConversations: () => Promise<void>;
   selectConversation: (conversationId: string) => Promise<void>;
-  loadMessages: (conversationId: string) => Promise<void>;
-  sendMessage: (conversationId: string, content: string) => Promise<void>;
+  sendMessage: (content: string) => Promise<void>;
   startConversation: (participantUsername: string) => Promise<string>;
-  addMessage: (message: Message) => void;
-  setTyping: (conversationId: string, userId: number, isTyping: boolean) => void;
+  addMessage: (message: SimpleMessage) => void;
   clearError: () => void;
   reset: () => void;
 }
@@ -38,7 +54,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoadingMessages: false,
   isSendingMessage: false,
   error: null,
-  typingUsers: {},
 
   loadConversations: async () => {
     try {
@@ -46,7 +61,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
       
       console.log('📂 Loading conversations...');
       
-      const conversations = await apiService.getUserConversations();
+      // For now, let's use a mock conversation list
+      // Later we'll integrate with the API
+      const conversations: SimpleConversation[] = [
+        {
+          id: 'conv_demo_1',
+          participantUsername: 'alice',
+          participantId: 2,
+          lastMessage: 'Hey there!',
+          lastMessageAt: new Date().toISOString(),
+          messageCount: 3
+        },
+        {
+          id: 'conv_demo_2',
+          participantUsername: 'bob',
+          participantId: 3,
+          lastMessage: 'How are you?',
+          lastMessageAt: new Date(Date.now() - 60000).toISOString(),
+          messageCount: 1
+        }
+      ];
       
       set({
         conversations,
@@ -67,86 +101,113 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   selectConversation: async (conversationId: string) => {
     try {
-      set({ currentConversationId: conversationId, error: null });
+      set({ currentConversationId: conversationId, isLoadingMessages: true, error: null });
       
       console.log(`📋 Selecting conversation: ${conversationId}`);
       
       // Join the conversation room for real-time updates
       socketService.joinConversation(conversationId);
       
-      // Load messages if not already loaded
+      // Load existing messages (mock for now)
       const { messages } = get();
       if (!messages[conversationId]) {
-        await get().loadMessages(conversationId);
+        // Mock some messages
+        const mockMessages: SimpleMessage[] = [
+          {
+            id: 1,
+            conversationId,
+            senderId: 2,
+            senderUsername: 'alice',
+            content: 'Hey there!',
+            messageType: 'text',
+            createdAt: new Date(Date.now() - 300000).toISOString()
+          },
+          {
+            id: 2,
+            conversationId,
+            senderId: 1,
+            senderUsername: 'you',
+            content: 'Hi! How are you?',
+            messageType: 'text',
+            createdAt: new Date(Date.now() - 120000).toISOString()
+          },
+          {
+            id: 3,
+            conversationId,
+            senderId: 2,
+            senderUsername: 'alice',
+            content: 'I\'m doing great, thanks for asking!',
+            messageType: 'text',
+            createdAt: new Date(Date.now() - 60000).toISOString()
+          }
+        ];
+
+        set({
+          messages: {
+            ...get().messages,
+            [conversationId]: mockMessages
+          },
+          isLoadingMessages: false
+        });
+      } else {
+        set({ isLoadingMessages: false });
       }
+
+      console.log(`✅ Conversation ${conversationId} selected`);
       
     } catch (error) {
       console.error('❌ Failed to select conversation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to select conversation';
-      set({ error: errorMessage });
-    }
-  },
-
-  loadMessages: async (conversationId: string) => {
-    try {
-      set({ isLoadingMessages: true, error: null });
-      
-      console.log(`📥 Loading messages for conversation: ${conversationId}`);
-      
-      // Use encryption manager to get and decrypt messages
-      const result = await encryptionManager.getConversationMessages(conversationId, 50);
-      
-      set({
-        messages: {
-          ...get().messages,
-          [conversationId]: result.messages
-        },
-        isLoadingMessages: false
-      });
-
-      console.log(`✅ Loaded ${result.messages.length} messages`);
-      
-    } catch (error) {
-      console.error('❌ Failed to load messages:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load messages';
-      set({
-        isLoadingMessages: false,
-        error: errorMessage
+      set({ 
+        error: errorMessage,
+        isLoadingMessages: false 
       });
     }
   },
 
-  sendMessage: async (conversationId: string, content: string) => {
+  sendMessage: async (content: string) => {
     try {
+      const { currentConversationId } = get();
+      
+      if (!currentConversationId) {
+        throw new Error('No conversation selected');
+      }
+
+      if (!content.trim()) {
+        throw new Error('Message cannot be empty');
+      }
+
       set({ isSendingMessage: true, error: null });
       
-      console.log(`📤 Sending message to conversation: ${conversationId}`);
+      console.log(`📤 Sending message to conversation: ${currentConversationId}`);
       
-      // Use encryption manager to send encrypted message
-      const message = await encryptionManager.sendMessage(conversationId, content);
-      
-      // Add to local state with decrypted content
-      const messageWithDecrypted = {
-        ...message,
-        decryptedContent: content
+      // Create the message
+      const newMessage: SimpleMessage = {
+        id: Date.now(), // Temporary ID
+        conversationId: currentConversationId,
+        senderId: 1, // Current user ID (mock)
+        senderUsername: 'you',
+        content: content.trim(),
+        messageType: 'text',
+        createdAt: new Date().toISOString()
       };
-      
+
+      // Add to local state immediately (optimistic update)
       const { messages } = get();
-      const conversationMessages = messages[conversationId] || [];
+      const conversationMessages = messages[currentConversationId] || [];
       
       set({
         messages: {
           ...messages,
-          [conversationId]: [...conversationMessages, messageWithDecrypted]
+          [currentConversationId]: [...conversationMessages, newMessage]
         },
         isSendingMessage: false
       });
 
-      // Send via Socket.IO for real-time delivery to other participants
+      // Send via Socket.IO for real-time delivery
       socketService.sendMessage({
-        conversationId,
-        encryptedContent: message.encryptedContent,
-        iv: message.iv,
+        conversationId: currentConversationId,
+        content: content.trim(),
         messageType: 'text'
       });
 
@@ -167,12 +228,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       console.log(`💬 Starting conversation with: ${participantUsername}`);
       
-      // Use encryption manager to start conversation
-      const conversationId = await encryptionManager.startConversation(participantUsername);
+      // For now, create a simple conversation ID
+      const conversationId = `conv_${participantUsername}_${Date.now()}`;
       
-      // Reload conversations to get the new one
-      await get().loadConversations();
-      
+      // Add to conversations list
+      const newConversation: SimpleConversation = {
+        id: conversationId,
+        participantUsername,
+        participantId: Date.now(), // Mock participant ID
+        messageCount: 0
+      };
+
+      const { conversations } = get();
+      set({
+        conversations: [newConversation, ...conversations]
+      });
+
       // Select the new conversation
       await get().selectConversation(conversationId);
 
@@ -187,51 +258,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  addMessage: (message: Message) => {
-    const { messages, currentConversationId } = get();
+  addMessage: (message: SimpleMessage) => {
+    const { messages } = get();
     const conversationId = message.conversationId;
     const conversationMessages = messages[conversationId] || [];
     
     // Check if message already exists to avoid duplicates
     const existingMessage = conversationMessages.find(m => m.id === message.id);
     if (existingMessage) {
+      console.log('Message already exists, skipping:', message.id);
       return;
     }
     
-    // Try to decrypt the message if it's for current conversation
-    let messageWithDecrypted = message;
-    if (conversationId === currentConversationId) {
-      try {
-        // Get conversation data from encryption manager
-        const cachedConversations = encryptionManager.getCachedConversations();
-        const conversationData = cachedConversations.find(c => c.conversationId === conversationId);
-        
-        if (conversationData) {
-          const { EncryptionService } = require('../utils/encryption');
-          const decryptedContent = EncryptionService.decryptMessage(
-            {
-              encryptedContent: message.encryptedContent,
-              iv: message.iv
-            },
-            conversationData.conversationKey
-          );
-          
-          messageWithDecrypted = {
-            ...message,
-            decryptedContent
-          };
-        }
-      } catch (error) {
-        console.error('Failed to decrypt incoming message:', error);
-        messageWithDecrypted = {
-          ...message,
-          decryptedContent: '[Failed to decrypt]'
-        };
-      }
-    }
-    
     // Add message to the end (newest)
-    const updatedMessages = [...conversationMessages, messageWithDecrypted];
+    const updatedMessages = [...conversationMessages, message];
     
     set({
       messages: {
@@ -241,24 +281,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     console.log(`📨 New message added to conversation: ${conversationId}`);
-  },
-
-  setTyping: (conversationId: string, userId: number, isTyping: boolean) => {
-    const { typingUsers } = get();
-    const conversationTyping = typingUsers[conversationId] || new Set();
-    
-    if (isTyping) {
-      conversationTyping.add(userId);
-    } else {
-      conversationTyping.delete(userId);
-    }
-    
-    set({
-      typingUsers: {
-        ...typingUsers,
-        [conversationId]: conversationTyping
-      }
-    });
   },
 
   clearError: () => {
@@ -273,23 +295,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isLoadingConversations: false,
       isLoadingMessages: false,
       isSendingMessage: false,
-      error: null,
-      typingUsers: {}
+      error: null
     });
     
     console.log('🗑️ Chat store reset');
   }
 }));
 
-// Setup socket event listeners
-socketService.onNewMessage((message: Message) => {
-  console.log('🔔 New message received via socket:', message.id);
-  useChatStore.getState().addMessage(message);
+// Setup socket event listeners for real-time messaging
+socketService.onNewMessage((message: any) => {
+  console.log('🔔 New message received via socket:', message);
+  
+  // Convert to our SimpleMessage format
+  const simpleMessage: SimpleMessage = {
+    id: message.id || Date.now(),
+    conversationId: message.conversationId,
+    senderId: message.senderId,
+    senderUsername: message.senderUsername || 'Unknown',
+    content: message.content || message.encryptedContent, // Use content or fallback
+    messageType: 'text',
+    createdAt: message.createdAt || new Date().toISOString()
+  };
+  
+  useChatStore.getState().addMessage(simpleMessage);
 });
 
-socketService.onMessageSent((message: Message) => {
-  console.log('✅ Message sent confirmation via socket:', message.id);
-  useChatStore.getState().addMessage(message);
+socketService.onMessageSent((message: any) => {
+  console.log('✅ Message sent confirmation via socket:', message);
+  // Message already added optimistically, could update with real ID here
 });
 
 socketService.onMessageError((error: { message: string }) => {
@@ -298,12 +331,4 @@ socketService.onMessageError((error: { message: string }) => {
     error: error.message,
     isSendingMessage: false 
   });
-});
-
-socketService.onUserTyping((data) => {
-  useChatStore.getState().setTyping(
-    data.conversationId,
-    data.userId,
-    data.isTyping
-  );
 });

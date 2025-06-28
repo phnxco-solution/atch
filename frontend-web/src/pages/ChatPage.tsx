@@ -1,3 +1,8 @@
+/**
+ * Chat Page - Step 7: Simple Real-Time Messaging
+ * Updated for simplified chat system
+ */
+
 import React, { useEffect } from 'react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuth } from '@/hooks/useAuth';
@@ -9,7 +14,8 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
   const { 
-    currentConversation, 
+    currentConversationId,
+    conversations,
     isLoadingConversations, 
     loadConversations,
     error 
@@ -27,6 +33,11 @@ const ChatPage: React.FC = () => {
       </div>
     );
   }
+
+  // Get current conversation details
+  const currentConversation = currentConversationId 
+    ? conversations.find(conv => conv.id === currentConversationId)
+    : null;
 
   return (
     <div className="h-screen flex bg-gray-100">
@@ -62,6 +73,17 @@ const ChatPage: React.FC = () => {
               <p className="text-gray-500 max-w-sm">
                 Select a conversation to start messaging, or search for users to begin a new chat.
               </p>
+              
+              {/* Quick start button for testing */}
+              <button
+                onClick={() => {
+                  const chatStore = useChatStore.getState();
+                  chatStore.startConversation('alice');
+                }}
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Start Demo Conversation
+              </button>
             </div>
           </div>
         )}
@@ -69,7 +91,7 @@ const ChatPage: React.FC = () => {
 
       {/* Error display */}
       {error && (
-        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-lg shadow-lg max-w-sm">
+        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-lg shadow-lg max-w-sm z-50">
           <div className="flex">
             <div className="flex-shrink-0">
               <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">

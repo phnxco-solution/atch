@@ -49,53 +49,55 @@ router.get('/conversation/:conversationId',
 );
 
 /**
- * Send a new message - Step 3 updated
+ * Send a new message - Step 7 simplified
  */
 router.post('/',
   authenticateToken,
   messageRateLimit,
-  validateRequest(messageValidation.send),
   async (req, res) => {
     try {
-      const { conversationId, encryptedContent, iv, messageType } = req.body;
+      const { conversationId, content, messageType = 'text' } = req.body;
 
-      // Validate conversation access
-      const ConversationKeyService = require('../services/conversationKeyService');
-      const hasAccess = await ConversationKeyService.hasConversationAccess(
-        conversationId,
-        req.user.id
-      );
-
-      if (!hasAccess) {
-        return res.status(403).json({
+      // Basic validation
+      if (!conversationId) {
+        return res.status(400).json({
           success: false,
-          message: 'Access denied to this conversation'
+          message: 'Conversation ID is required'
         });
       }
 
-      const message = await MessageService.sendMessage(
-        conversationId,
-        req.user.id,
-        encryptedContent,
-        iv,
-        messageType
+      if (!content || !content.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Message content is required'
+        });
+      }
+
+      // For now, just store the plain text message
+      // We'll add back encryption later
+      const result = await db.query(
+        'INSERT INTO messages (conversation_id, sender_id, encrypted_content, iv, message_type) VALUES (?, ?, ?, ?, ?)',
+        [conversationId, req.user.id, content.trim(), 'no_iv_yet', messageType]
       );
+
+      const message = {
+        id: result.insertId,
+        conversationId,
+        senderId: req.user.id,
+        senderUsername: req.user.username,
+        content: content.trim(),
+        messageType,
+        createdAt: new Date().toISOString()
+      };
 
       res.status(201).json({
         success: true,
         message: 'Message sent successfully',
-        data: {
-          message: {
-            id: message.id,
-            conversationId: message.conversationId,
-            senderId: message.senderId,
-            encryptedContent: message.encryptedContent,
-            iv: message.iv,
-            messageType: message.messageType,
-            createdAt: message.createdAt
-          }
-        }
+        data: { message }
       });
+
+      console.log(`✅ Simple message sent: ${result.insertId}`);
+
     } catch (error) {
       console.error('Send message error:', error);
       res.status(500).json({
